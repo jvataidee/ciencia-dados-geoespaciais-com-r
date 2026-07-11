@@ -1,0 +1,719 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+![](D:/Pos-GeoDataScience/M2-R/images/01 Assinatura Horizontal COR.png)
+
+# **Inteligência Artificial Geográfica**
+
+O R também é conhecido pela sua grande coleção de pacotes dedicados à estatística, como observamos anteriormente. Adicionalmente, sua curva de aprendizado e a presença de uma comunidade ativa tornam-no uma ferramenta excepcional para pesquisadores e especialistas do setor.
+
+Entre os pacotes mais utilizados no R para aprendizagem de máquina, destacam-se:
+
+* **Caret**: Fornece uma interface uniforme para o treinamento de modelos de aprendizado de máquina, abrangendo funcionalidades para o pré-processamento de dados, seleção de características e avaliação de modelos.
+
+* **TidyModels**: Consiste em uma série de pacotes destinados à modelagem e aprendizado de máquina que aderem aos princípios do tidyverse, otimizando o processo de análise de dados.
+
+* **MLR (Machine Learning in R)**: Oferece uma plataforma integrada e acessível para aprendizado de máquina, compatível com uma vasta gama de algoritmos de aprendizagem.
+
+* **reticulate**: Um pacote que permite a execução de códigos Python dentro do ambiente R, facilitando a interoperabilidade entre as duas linguagens. Além disso, possibilita o uso de outras bibliotecas Python, como TensorFlow, PyTorch e scikit-learn, ampliando significativamente as opções de modelagem e análise.
+
+
+## **Tipos de Modelos no R**
+No ambiente de programação R, os modelos de aprendizado de máquina se dividem em três categorias principais, com suporte abrangente para cada uma delas:
+
+* **Supervisionado**: Esse tipo inclui modelos que são treinados usando conjuntos de dados etiquetados. No R, a implementação desses modelos é facilitada pelo uso de pacotes específicos, como `caret` para treinamento geral de modelos, `nnet` para a aplicação de redes neurais e `rpart` para a construção de árvores de decisão.
+
+* **Não Supervisionado**: Modelos não supervisionados são empregados para descobrir padrões ocultos e realizar agrupamentos em conjuntos de dados que não possuem etiquetas pré-definidas.o R dispõe de pacotes como `cluster`, que é utilizado para a realização de K-means, e `factoextra`, recomendado para análise de componentes principais (PCA).
+
+* **Reforço**: Visa desenvolver modelos capazes de tomar decisões, aprendendo com as consequências de suas ações. Embora menos comum no R do que em Python, pacotes como `reinforcelearn` estão disponíveis, proporcionando recursos iniciais para aqueles interessados neste assunto.
+
+
+## **Aplicações em Dados Vetorias**
+#### **Clusterização (K-Means)**
+Ao abordarmos a clusterização em dados vetoriais no contexto de R, nos deparamos com duas principais famílias de abordagens: a clusterização baseada em **partição** e a clusterização **hierárquica**. Cada uma dessas metodologias possui características distintas que as tornam adequadas para diferentes tipos de dados e objetivos de análise.
+
+A clusterização baseada em partição, como a realizada pelo algoritmo `K-Means`, busca identificar clusters ou classes típicas no espaço multidimensional de características, alocando observações ao cluster mais próximo com base em alguma medida de similaridade ou distância multivariada. Esse tipo de abordagem requer a definição prévia do número de classes ou clusters (k).
+
+Por outro lado, a clusterização hierárquica procura identificar grupos de observações com base em sua similaridade, agrupando-as todas juntas antes de dividir iterativamente (clusterização divisiva) ou agrupando observações individuais iterativamente (clusterização aglomerativa). Diferentemente da clusterização baseada em partição, na clusterização hierárquica, o número de clusters pode ser escolhido a posteriormente. Embora esta sessão não aborde especificamente, um exemplo desse tipo de modelo é o `DBSCAN` (Density-Based Spatial Clustering of Applications with Noise).
+
+Para iniciar nossa análise, é essencial criar um projeto no Google BigQuery usando uma conta Google, pois utilizaremos o datalake da Base dos Dados para acessar o conjunto de dados mencionado. Os tutoriais para acessar e configurar o ambiente estão disponíveis nos seguintes links:
+
+[Base de Dados INPE](https://basedosdados.org/dataset/f06f3cdc-b539-409b-b311-1ff8878fb8d9?table=a3696dc2-4dd1-4f7e-9769-6aa16a1556b8)
+
+Como usar Base de Dados: [Tutorial Base dos Dados](https://basedosdados.github.io/mais/access_data_packages/#primeiros-passos)
+
+```{r}
+# Instalar pacotes se não estiverem instalados
+if (!requireNamespace("sf", quietly = TRUE)) install.packages("sf")
+devtools::install_version("dbplyr", version = "2.1.1", repos = "http://cran.us.r-project.org")
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("raster", quietly = TRUE)) install.packages("raster")
+if (!requireNamespace("basedosdados", quietly = TRUE)) install.packages("basedosdados")
+if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+if (!requireNamespace("FNN", quietly = TRUE)) install.packages("FNN")
+if (!requireNamespace("stats", quietly = TRUE)) install.packages("stats")
+```
+
+```{r}
+# Carregar pacotes
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(raster)
+library(basedosdados)
+library(FNN)
+library(tidyverse)
+library(readr)
+```
+
+Primeiro passo será ler e tranformar em arquivo espacial nosso sdados de queimadas que estão em CSV.
+
+```{r}
+df <- read.csv("D:/Pos-GeoDataScience/M2-R/dado_pratica/queimadas_inpe.csv", encoding = "UTF-8")
+df$geometry <- st_as_sfc(df$centroide, crs = 4326)
+head(df)
+```
+
+Para a realização de uma clusterização com o método K-Means, além de uma análise de vizinhança, recorremos aos pacotes `stats` para K-Means, que é parte integrante do R, e `FNN` para identificação de vizinhos mais próximos.
+
+
+```{r}
+# Visualizando os dados
+plot(st_geometry(df$geometry))
+```
+
+No primeiro passo do nosso processo, iremos desenvolver categorias de pesos baseadas na distância entre os pontos, considerando a proximidade entre eles. Para esta tarefa, utilizaremos o método KNN (K-Nearest Neighbors, ou K-Vizinhos Mais Próximos), no qual os pesos gerados servirão como categorias que utilizaremos em etapas subsequentes.
+
+Essas categorias de pesos serão usadas para a visualização dos dados, e permitirá distinguir os clusters por cores diferenciadas, conforme o seu grau de peso em relação ao foco de incêndio.
+
+```{r}
+# Convertendo as geometrias para coordenadas (x, y)
+coordenadas <- st_coordinates(df$geometry)
+
+# Inicializa o Nearest Neighbors e encontra distâncias
+knn_result <- get.knnx(coordenadas, coordenadas, k = 2)
+
+# Calcula os pesos com base na proximidade
+pesos <- 1 / (knn_result$nn.dist[, 2] + 1e-10)
+pesos <- pesos / sum(pesos) * 1000
+
+# Adicionando pesos ao dataframe
+df$pesos <- pesos
+
+head(df)
+```
+
+Por fim, utilizando as coordenadas disponíveis, procederemos ao cálculo de 20 clusters, empregando o método K-Means para essa finalidade.
+
+```{r}
+# Aplicando K-Means
+set.seed(0) # Para reprodutibilidade
+kmeans_result <- kmeans(coordenadas, centers = 20)
+
+# Adicionando a informação de cluster ao GeoDataFrame
+df$cluster <- kmeans_result$cluster
+df_sf = st_as_sf(df)
+head(df)
+```
+
+
+```{r}
+# Visualizando os clusters - Ajuste na chamada do ggplot
+ggplot(data = df_sf) +
+  geom_sf(aes(color = as.factor(cluster), size = pesos)) +  
+  theme_minimal() +
+  labs(title = "Clusters de Incêndios e Proximidade", color = "Cluster") +
+  scale_size_continuous(name = "Peso", range = c(1, 10))
+```
+
+#### **Regressão (Random Forest Regression)**
+
+Vamos começar carregando todas as bibliotecas necessárias. Isso inclui pacotes para manipulação de dados, visualização, modelagem com Random Forest, além dos necessários para lidar com dados geoespaciais.
+
+```{r}
+# Carregar biblioteca
+library(readxl)
+library(sf)
+library(ggplot2)
+library(randomForest)
+library(dplyr)
+library(raster)
+library(sp)
+```
+
+Em seguida, vamos fazer a leitura do nosso conjunto de avaliação de imóveis a partir de um arquivo Excel. Eu sempre gosto de olhar as primeiras linhas para ter uma ideia do que estamos lidando.
+
+```{r}
+# Carregando os dados
+preco_imovel <- read_excel("D:/Pos-GeoDataScience/M2-R/dado_pratica/Real estate valuation data set.xlsx")
+head(preco_imovel)
+```
+
+Após a leitura das dados e identificado as culunas referentes as coodenadas, podemos converter esses dados para um objeto tipo `sf`. Isso é essencial para quando precisarmos manipular e visualizar dados espaciais mais tarde.
+
+```{r}
+# Convertendo as colunas de latitude e longitude para um objeto sf
+coords <- st_as_sf(preco_imovel, coords = c("X6 longitude", "X5 latitude"), crs = 4326)
+plot(coords)
+```
+Qualquer processamento feito, precisamos garantir a integridade da base, por exemplo usando `No` que é o número de imóveis `No`, também garantido que não seja usado, pois por não ser uma informação generalista pode gerar ruído para o modelo.
+
+```{r}
+# Definindo "No" como index
+preco_imovel <- preco_imovel %>% mutate(row_id = row_number()) %>% pivot_wider(names_from = No, values_from = row_id)
+```
+
+Após garantir o nosso ID, vamos selecionar as colunas com as características que serão usadas no modelo e procedo com a normalização delas. Isso ajuda a melhorar o desempenho do nosso modelo de regressão.
+
+```{r}
+# Selecionando características específicas e normalizando
+features <- c('X1 transaction date', 'X2 house age', 'X3 distance to the nearest MRT station', 'X4 number of convenience stores')
+
+# Normalização com scale
+preco_imovel[features] <- scale(preco_imovel[features])
+```
+
+Base de dados prepara, precisamos garantir a criação de uma base de teste e treino. Isso nos permite validar a eficácia do modelo de forma mais confiável. Eu também defino um `seed` para garantir que nosso resultado seja reprodutível.
+
+```{r}
+# Dividindo os dados em conjuntos de treino e teste
+set.seed(42) # Para reprodutibilidade
+indexes <- sample(1:nrow(preco_imovel), size = 0.8 * nrow(preco_imovel))
+train_data <- preco_imovel[indexes, ]
+test_data <- preco_imovel[-indexes, ]
+```
+
+Agora, vamos treinar o modelo Random Forest com nossos dados de treinamento, especificando o número de árvores que desejo usar.
+
+```{r}
+# Treinando o modelo Random Forest
+model <- randomForest(x = train_data[features], y = train_data$`Y house price of unit area`, ntree = 100)
+```
+
+Modelo treinado, podemos realziar previsões sobre o conjunto de teste e começo a avaliar o quão bom ele é usando várias métricas.
+
+```{r}
+# Previsão e avaliação do modelo
+predictions <- predict(model, newdata = test_data[features])
+```
+
+As métricas de erro para nos dar uma ideia clara de como o modelo está performando.
+
+```{r}
+# Calculando métricas de erro
+mse <- mean((predictions - test_data$`Y house price of unit area`)^2)
+mae <- mean(abs(predictions - test_data$`Y house price of unit area`))
+rmse <- sqrt(mse)
+r2 <- cor(predictions, test_data$`Y house price of unit area`)^2
+
+cat("Erro Quadrático Médio (MSE):", mse, "\n")
+cat("Erro Absoluto Médio (MAE):", mae, "\n")
+cat("Raiz do Erro Quadrático Médio (RMSE):", rmse, "\n")
+cat("Coeficiente de Determinação (R² score):", r2, "\n")
+```
+Adicionando as previsões e calculando a diferença entre os valores previstos e os reais. Isso será útil para nossa análise visual mais tarde.
+
+```{r}
+# Preparação para visualização
+test_data$Previsoes <- predictions
+test_data$Real <- test_data$`Y house price of unit area`
+test_data$Diferenca <- test_data$Previsoes - test_data$Real
+```
+
+```{r}
+head(test_data[c('Real', 'Previsoes')])
+```
+
+Colunada a diferença da previsão e do real, podemos definir categoricamente as diferenças entre previsões e valores reais. Essa etapa ajuda a visualizar melhor os resultados da nossa previsão.
+
+```{r}
+# Definindo os limites para categorização
+limite_minimo <- 1
+limite_medio <- 5
+limite_maximo <- 10
+
+# Categorizando as diferenças
+test_data$Categoria <- cut(test_data$Diferenca,
+                           breaks = c(-Inf, limite_minimo, limite_medio, limite_maximo, Inf),
+                           labels = c("baixo", "médio", "alto", "muito alto"))
+```
+
+Por fim, podemos gerar uma visualização geoespacial das nossas previsões de preços de imóveis, aplicando as cores que definimos sobre as categorias de erros, que é forma eficaz de ver como nossas previsões e os erros se espalham geograficamente.
+
+```{r}
+# Para a visualização, defina as cores para cada categoria
+cores <- c(baixo = 'green', médio = 'blue', alto = 'yellow', 'muito alto' = 'red')
+
+test_data$geometry <- st_as_sf(test_data, coords = c("X6 longitude", "X5 latitude"), crs = 4326)
+
+# Continuação da visualização geoespacial das previsões
+ggplot(data = test_data$geometry) +
+  geom_sf(aes(color = Categoria), size = 2) +
+  scale_color_manual(values = cores) +
+  theme_minimal() +
+  labs(title = "Visualização Geoespacial das Previsões de Preços de Imóveis")
+```
+
+#### **Classificação (Random Forest Classification)**
+Para começar, é essencial entender o que a Random Forest Classification representa. Trata-se de um método robusto de aprendizado de máquina que utiliza várias árvores de decisão para realizar classificações. O que torna este método particularmente poderoso é a sua capacidade de combinar as previsões de diversas árvores para aumentar a precisão e reduzir o risco de sobreajuste, comum quando se utiliza uma única árvore de decisão.Vamos aplicar esse método para identificar transações fraudulentas, mergulhando nos dados e processos necessários para realizar essa tarefa.
+
+```{r}
+if (!require("caret")) install.packages("caret")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("sf")) install.packages("sf")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("randomForest")) install.packages("randomForest")
+```
+
+Garantindo ateriormente que os pacotes estejam instalado. Vamos carregar todas as bibliotecas de que precisaremos ao longo deste processo. Isso inclui pacotes para a manipulação e visualização de dados, além do randomForest para a classificação e outros para trabalhar com dados geoespaciais.
+
+```{r}
+# Carregando bibliotecas necessárias
+library(readr)
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(randomForest)
+library(caret)
+```
+
+Em seguida, carregamos os dados da nossa análise, que incluem informações detalhadas sobre as transações, incluindo se são fraudulentas ou não.
+
+```{r}
+# Carregando a base de dados
+fraud_data <- read_csv('D:/Pos-GeoDataScience/M2-R/dado_pratica/fraud_dataset.csv', show_col_types = FALSE)
+head(fraud_data)
+```
+
+Como parte do nosso processo de limpeza, removemos quaisquer entradas nulas dos dados. Isso é fundamental para garantir a qualidade do treinamento do nosso modelo.
+
+```{r}
+# Removendo entradas nulas
+fraud_data <- na.omit(fraud_data)
+```
+
+E em seguida, convertemos as coordenadas para um objeto `sf`, preparando os dados para qualquer visualização geoespacial futura. Isso nos permite manipular os dados geoespaciais de forma mais eficaz.
+
+```{r}
+# Ajuste: Conversão de coordenadas em objeto sf
+fraud_data_sf <- st_as_sf(fraud_data, coords = c("long", "lat"), crs = 4326)
+fraud_data_processed <- dplyr::select(fraud_data, -long, -lat)
+```
+
+Seguindo neste procedimento de preparo ainda, aplicamos a codificação nas variáveis categóricas, transformando-as em numéricas. Esse passo é crucial para que o modelo possa interpretar corretamente todas as características.
+
+```{r}
+# Aplicar codificação de variáveis categóricas
+categorias <- c('merchant', 'street', 'gender', 'category', 'city', 'state', 'job')
+fraud_data_processed[categorias] <- lapply(fraud_data_processed[categorias], factor) %>% lapply(as.numeric)
+```
+
+Também realizaremos a identificação dos dados numétricos, e então realziar normalziação dessas. Esse processo ajusta as escalas dos dados, permitindo que o modelo trate todas as variáveis de maneira justa, sem dar peso indevido a nenhuma delas.
+
+```{r}
+# Normalizar dados numéricos
+colunas_numericas <- c('amt', 'city_pop')
+fraud_data_processed[colunas_numericas] <- scale(fraud_data_processed[colunas_numericas])
+```
+
+No R, precisamos converter a variável de resposta `is_fraud` em um `fator`, sendo um procedimento essencial para a análise de classificação.
+
+```{r}
+# Tranforma Variável de resposta é um fator
+fraud_data_processed$is_fraud <- as.factor(fraud_data_processed$is_fraud)
+```
+
+Por fim da preparação dos dados, dividimos os dados em conjuntos de treino e teste. Essa etapa é importante para avaliar a capacidade do nosso modelo de generalizar para novos dados. Usamos um seed para garantir que o processo seja reprodutível.
+
+```{r}
+# Dividir os dados em conjuntos de treino e teste
+set.seed(42) # Para reprodutibilidade
+indexes <- createDataPartition(fraud_data_processed$is_fraud, p = 0.8, list = FALSE)
+train_data <- fraud_data_processed[indexes, ]
+test_data <- fraud_data_processed[-indexes, ]
+```
+
+Chegamos ao ponto de treinar o modelo de `Random Forest`. Aqui, utilizamos todos os dados de treinamento preparados anteriormente para construir um modelo que possa identificar transações fraudulentas.
+
+```{r}
+# Treinando o modelo de Random Forest
+model <- randomForest(is_fraud ~ ., data = train_data, ntree = 1)
+```
+
+Modelo treinado, podemos realizar a avaliação da peformace do nosso modelo utilizando o conjunto de teste. A matriz de confusão gerada nos oferece uma visão detalhada sobre a precisão das previsões.
+
+```{r}
+# Avaliação do modelo
+predictions <- predict(model, newdata = test_data)
+conf_matrix <- confusionMatrix(predictions, test_data$is_fraud)
+print(conf_matrix)
+```
+Com o modelo avaliado, reintegramos a informação geoespacial, usando o nosso ID,  para preparar os dados para a visualização. Isso nos permite visualizar onde as transações fraudulentas foram previstas.
+
+```{r}
+# Reintegrar 'geometry' para visualização
+test_data$predicted_is_fraud <- predictions
+test_data_sf <- fraud_data_sf[-indexes, ]
+test_data_sf$predicted_is_fraud <- predictions
+```
+
+Finalmente, visualizamos as previsões de fraude de maneira geoespacial. Utilizamos cores distintas para diferenciar as transações previstas como fraudulentas das legítimas, facilitando a interpretação dos resultados.
+
+```{r}
+ggplot(data = test_data_sf) +
+  geom_sf(aes(color = as.factor(predicted_is_fraud))) +
+  theme_minimal() +
+  labs(title = "Previsões de Fraude em Transações", color = "Fraude Prevista")
+```
+
+
+## **Aplicações em Sensoriamento Remoto**
+### **Classificação Não supervisionada (K-means)**
+
+Nesta parte do nosso curso, vamos explorar como aplicar técnicas de classificação não supervisionada no contexto de sensoriamento remoto, utilizando especificamente o método K-means. Esta abordagem é especialmente útil para identificar padrões ou grupos naturais dentro de um conjunto de dados sem a necessidade de uma classificação prévia.
+
+Primeiro, precisamos garantir que o pacote necessário esteja disponível em nosso ambiente R. Caso não esteja, vamos instalá-lo.
+
+```{r}
+if (!requireNamespace("raster", quietly = TRUE)) install.packages("raster")
+if (!requireNamespace("FNN", quietly = TRUE)) install.packages("FNN")
+```
+
+```{r}
+library(raster)
+library(FNN)
+```
+
+Após a instalação, carregamos o pacote raster para podermos trabalhar com as imagens de sensoriamento remoto, que são fundamentais para nossa análise.
+
+```{r}
+# Caminho para a imagem raster
+raster_path <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/LC09_L2SP_214065_20240108_20240113_02_T1_SR.tif"
+
+# Carregar a imagem como um objeto RasterStack
+raster_stack <- stack(raster_path)
+```
+
+```{r}
+# Extrair bandas para composição RGB
+rgb <- c(raster_stack[[4]], raster_stack[[3]], raster_stack[[2]])
+
+# Visualizar a composição RGB
+plotRGB(raster_stack, r=3, g=2, b=1, stretch="lin")
+```
+
+Com o caminho definido, carregamos a imagem no formato RasterStack. Isso nos permite acessar e manipular as várias bandas espectrais da imagem simultaneamente.
+
+```{r}
+# Converter o RasterStack para uma matriz, com pixels como linhas e bandas como colunas
+data_matrix <- as.matrix(raster_stack)
+```
+
+Dados carregados como matrizes podemos começas a criação do modelo. Vale relembrar que, cada linha da matriz corresponde a um pixel e cada coluna a uma banda espectral. É crucial remover qualquer valor NA para assegurar a integridade dos dados para o K-means.
+
+```{r}
+# Remover possíveis valores NA
+data_matrix <- na.omit(data_matrix)
+```
+
+Neste ponto, aplicamos o algoritmo K-means aos nossos dados preparados, especificando o número desejado de clusters e iniciando o processo múltiplas vezes para assegurar resultados consistentes e reprodutíveis.
+
+```{r}
+set.seed(42) # Para reprodutibilidade
+k_means_result <- kmeans(data_matrix, centers = 5, nstart = 25)
+```
+
+Depois de aplicar o K-means, criamos um novo RasterLayer que vai representar visualmente os resultados de nossa classificação, atribuindo cada pixel ao seu respectivo cluster.
+
+Finalmente, visualizamos o resultado da nossa análise de classificação não supervisionada. Esta visualização é uma parte crucial do processo, pois nos permite observar como os clusters identificados estão distribuídos espacialmente na imagem.
+
+```{r}
+# Criar um RasterLayer para os resultados do cluster
+cluster_raster <- raster(raster_stack[[1]])
+values(cluster_raster) <- k_means_result$cluster
+
+# Plotar o resultado
+plot(cluster_raster, main = "Classificação Não Supervisionada - K-Means")
+```
+
+#### **Classificação (Random Forest Classification)**
+Agora, nós vamos iniciar esse processamento focando na Classificação usando Random Forest, uma técnica poderosa no campo do aprendizado de máquina para tarefas de classificação. O objetivo aqui é aplicar essa técnica para classificar uma imagem de satélite Landsat, um processo crucial em estudos de sensoriamento remoto para, por exemplo, distinguir diferentes tipos de cobertura do solo.
+
+Inicialmente, garantimos que todos os pacotes necessários estejam instalados e disponíveis para uso no nosso ambiente R. Isso inclui raster para manipulação de dados de imagens raster, randomForest para o modelo de classificação, sf para trabalhar com dados espaciais vetoriais, e rasterVis para visualizações aprimoradas.
+
+```{r}
+if (!require("raster")) install.packages("raster")
+if (!require("randomForest")) install.packages("randomForest")
+if (!require("sf")) install.packages("sf")
+if (!require("rasterVis")) install.packages("rasterVis")
+```
+
+Nesta etapa, checamos e instalamos os pacotes raster, randomForest, sf, e rasterVis se eles não estiverem já instalados. Isso nos assegura que tudo que precisamos estará disponível.
+
+```{r}
+library(raster)
+library(randomForest) 
+library(sf)
+library(rasterVis) 
+```
+
+Com os pacotes instalados, prosseguimos carregando-os na nossa sessão de R, preparando nosso ambiente para a análise que vem a seguir.
+
+```{r}
+# Carregar a imagem Landsat descompactada
+landsat_image_path <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/LC09_L2SP_214065_20240108_20240113_02_T1_SR.tif"
+landsat_image <- stack(landsat_image_path)
+```
+
+Em seguida, procedemos com o carregamento dos dados de treinamento. Esses dados coletados através de fotointerpretação, um processo detalhado que envolve a análise visual e a classificação manual de imagens, servirão como o data base para treinar nosso modelo. Essa etapa crítica assegura que o modelo estará bem equipado para identificar os diversos tipos de cobertura do solo presentes na imagem Landsat.
+
+```{r}
+# Carregar os dados de treinamento (após descompactar Amostras.zip)
+training_data_path <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/Amostras.shp"
+training_data <- st_read(training_data_path)
+training_data <- st_transform(training_data, crs = projection(landsat_image))
+```
+
+Agora, extraímos os valores dos pixels correspondentes às localizações dos nossos dados de treinamento. Esses valores serão utilizados como as variáveis independentes (X) no nosso modelo.
+
+```{r}
+# Extrair os valores dos pixels para os dados de treinamento
+samples <- raster::extract(landsat_image, training_data)
+y_train <- training_data$code
+```
+
+Os dados extraídos são então preparados para o treinamento, consolidando-os em uma estrutura adequada para o modelo Random Forest.
+
+```{r}
+# Preparar os dados de treinamento
+X_train <- do.call(rbind, list(samples))
+```
+
+Com os dados de treinamento preparados, treinamos o modelo Random Forest. Especificamos o número de árvores na floresta como 100, um valor comumente utilizado para garantir uma boa precisão do modelo.
+
+```{r}
+# Treinamento do modelo Random Forest
+model <- randomForest(x = X_train, y = as.factor(y_train), ntree = 100)
+```
+
+Após o treinamento, utilizamos o modelo para classificar a imagem Landsat inteira. Esse processo atribui a cada pixel da imagem uma das classes aprendidas pelo modelo.
+
+```{r}
+# Classificação da imagem inteira
+prediction <- predict(landsat_image, model)
+```
+
+Finalmente, visualizamos a imagem classificada. Esta etapa nos permite avaliar visualmente o resultado da classificação, observando como o modelo Random Forest conseguiu distinguir entre os diferentes tipos de cobertura do solo na imagem Landsat.
+
+```{r}
+# Visualização da imagem classificada
+plot(prediction, main = "Classified Landsat Image")
+```
+
+
+## **Redes Neurais Artificiais**
+
+### **Classificação Pixel (UNET)**
+
+Neste módulo, vamos focar especificamente na classificação de pixels utilizando a arquitetura UNET, um tipo de Rede Neural Artificial especialmente projetada para tarefas de segmentação de imagens. Embora nosso foco esteja na classificação de pixels, é importante salientar que, seguindo a lógica e os passos que vamos abordar, podemos também aventurar-nos na criação de outros tipos de modelos para diferentes aplicações em análises de imagens.
+
+
+Primeiramente, nos certificamos de que todas as ferramentas necessárias estão prontamente disponíveis no nosso ambiente R. Caso algum pacote necessário não esteja instalado, prosseguimos com sua instalação. Estes pacotes incluem tensorflow e keras para a construção e treinamento da nossa rede neural, além de magick e EBImage para manipulação e preparação de imagens, entre outros.
+
+```{r}
+if (!require("devtools")) install.packages("devtools")
+if (!require("keras")) install.packages("keras")
+if (!require("tensorflow")) devtools::install_github('rstudio/tensorflow')
+if (!require("magick")) install.packages("magick")
+```
+
+```{r}
+library(tensorflow)
+library(keras)
+library(magick)
+library(ggplot2)
+```
+
+Em seguida, definimos os caminhos para nossas imagens e máscaras. Estes arquivos formarão a base do nosso conjunto de dados para treinamento e teste do modelo UNET.
+
+```{r}
+# Definindo caminhos para imagens e máscaras
+path_images <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/deep_learning_datasets/Forest Aerial Images for Segmentation/Forest Segmented/Forest Segmented/images"
+
+path_masks <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/deep_learning_datasets/Forest Aerial Images for Segmentation/Forest Segmented/Forest Segmented/masks"
+```
+
+Desenvolvemos uma função customizada para carregar e preparar as imagens. Esta função ajusta o tamanho das imagens, converte os valores para o formato correto e normaliza os dados, preparando-os adequadamente para a modelagem.
+
+```{r}
+# Função para carregar e preparar as imagens
+load_image_magick <- function(path, target_size = c(128, 128)) {
+  img <- image_read(path) %>%
+    image_resize(paste0(target_size[1], 'x', target_size[2])) %>%
+    image_convert(colorspace = 'RGB')
+
+  img_data <- as.integer(image_data(img)) # Convertendo para um array de inteiros
+  img_data <- aperm(img_data, c(2, 1, 3)) # Corrigindo a ordem das dimensões
+  img_data <- array(img_data, dim = c(target_size[1], target_size[2], 3)) # Garantindo as dimensões corretas
+  img_data <- img_data / 255 # Normalização
+
+  return(img_data)
+}
+```
+
+Função criada, carregamos e preparamos as imagens e máscaras utilizando a função que criamos, convertendo-as em arrays que serão utilizados pelo modelo de rede neural.
+
+```{r}
+image_files <- list.files(path_images, full.names = TRUE)
+mask_files <- list.files(path_masks, full.names = TRUE)
+
+# Assumindo que todas as imagens têm o mesmo tamanho
+images <- lapply(image_files, load_image_magick)
+masks <- lapply(mask_files, function(x) load_image_magick(x, target_size = c(128, 128)))
+
+images_array <- array(unlist(images), dim = c(length(images), 128, 128, 3))
+masks_array <- array(unlist(masks), dim = c(length(masks), 128, 128, 1))
+```
+
+Para termos uma ideia visual do tipo de dados com os quais estamos trabalhando, plotamos uma imagem e sua máscara correspondente. Isso nos ajuda a visualizar como as máscaras definem as áreas de interesse que desejamos segmentar.
+
+```{r}
+# Plotar imagens e mascara
+par(mfrow=c(1,2))
+img <- image_read(image_files[5])
+mask <- image_read(mask_files[5])
+plot(img)
+plot(mask)
+```
+
+Agora, preparamos os conjuntos de treino e validação. Como já fizemos antes, esta etapa é crucial para treinar nosso modelo de forma eficaz e avaliar sua performance em dados não vistos durante o treinamento.
+
+```{r}
+set.seed(123) # Para reprodutibilidade
+indices <- 1:dim(images_array)[1] 
+indices <- sample(indices)
+
+# Definindo o tamanho do conjunto de treinamento
+train_size <- floor(0.8 * length(indices))
+
+# Dividindo os dados
+train_indices <- indices[1:train_size]
+val_indices <- indices[(train_size+1):length(indices)]
+
+train_images <- images_array[train_indices, , ,]
+train_masks <- masks_array[train_indices, , ,]
+val_images <- images_array[val_indices, , ,]
+val_masks <- masks_array[val_indices, , ,]
+```
+
+Após prepararmos nossa base de dados, avançamos para a construção da arquitetura UNET. Essencialmente, esta rede neural é estruturada em duas fases distintas: O downsampling envolve a redução progressiva das dimensões da imagem, o que permite à rede concentrar-se em características mais amplas e abstratas, capturando assim o contexto em uma escala mais geral. Posteriormente, o upsampling ocorre, onde as dimensões da imagem são gradualmente restauradas para suas medidas originais. Esta etapa é crucial para refinar os detalhes e assegurar que a segmentação realizada pela rede seja tanto precisa quanto detalhada, possibilitando uma identificação exata das áreas de interesse na imagem.
+
+```{r}
+input <- layer_input(shape = c(128, 128, 3))
+
+# Downsample
+c1 <- input %>%
+  layer_conv_2d(filters = 16, kernel_size = c(3,3), activation = 'relu', padding = 'same') %>%
+  layer_conv_2d(filters = 16, kernel_size = c(3,3), activation = 'relu', padding = 'same') %>%
+  layer_max_pooling_2d()
+
+# UpSample
+u6 <- c1 %>%
+  layer_conv_2d_transpose(filters = 16, kernel_size = c(2,2), strides = c(2,2), padding = 'same') %>%
+  layer_conv_2d(filters = 16, kernel_size = c(3,3), activation = 'relu', padding = 'same') %>%
+  layer_conv_2d(filters = 16, kernel_size = c(3,3), activation = 'relu', padding = 'same')
+
+output <- u6 %>%
+  layer_conv_2d(filters = 1, kernel_size = c(1,1), activation = 'sigmoid')
+
+model <- keras_model(inputs = input, outputs = output)
+```
+
+Com o modelo construído, prosseguimos para sua compilação e treinamento. Especificamos o otimizador, a função de perda e as métricas de avaliação, e iniciamos o treinamento com nossos dados, salvando em uma variável nossos resultados das métricas durante a épocas de treinamento.
+
+```{r}
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'binary_crossentropy',
+  metrics = 'accuracy'
+)
+
+# Resumo do modelo
+summary(model)
+```
+
+```{r}
+history <- model %>% fit(
+  train_images, train_masks,
+  epochs = 20,
+  batch_size = 32,
+  validation_data = list(val_images, val_masks)
+)
+```
+
+Após o treinamento, avaliamos o modelo com base em várias métricas, como precisão, recall, e a pontuação F1, além de calcular a Interseção sobre União (IoU) para medir a qualidade da segmentação realizada pelo modelo.
+
+
+```{r}
+plot(history)
+```
+
+```{r}
+predictions <- model %>% predict(val_images)
+
+# Arredondando as previsões para obter máscaras binárias
+predicted_masks <- array_reshape(predictions, dim(val_masks))
+```
+
+```{r}
+calculate_iou <- function(y_true, y_pred) {
+  intersection <- sum(y_true * y_pred)
+  union <- sum(y_true) + sum(y_pred) - intersection
+  iou <- intersection / union
+  return(iou)
+}
+
+calculate_precision <- function(y_true, y_pred) {
+  true_positives <- sum(y_true * y_pred)
+  predicted_positives <- sum(y_pred)
+  precision <- true_positives / predicted_positives
+  return(precision)
+}
+
+calculate_recall <- function(y_true, y_pred) {
+  true_positives <- sum(y_true * y_pred)
+  actual_positives <- sum(y_true)
+  recall <- true_positives / actual_positives
+  return(recall)
+}
+
+calculate_f1 <- function(precision, recall) {
+  f1 <- 2 * (precision * recall) / (precision + recall)
+  return(f1)
+}
+```
+
+```{r}
+#Modificando dimensão
+num_images <- dim(val_masks)[1]
+
+#Aplicando cálculo das métricas
+iou_scores <- sapply(1:num_images, function(i) calculate_iou(val_masks[i, ,], predicted_masks[i, ,]))
+precision_scores <- sapply(1:num_images, function(i) calculate_precision(val_masks[i, ,], predicted_masks[i, ,]))
+recall_scores <- sapply(1:num_images, function(i) calculate_recall(val_masks[i, ,], predicted_masks[i, ,]))
+f1_scores <- mapply(calculate_f1, precision_scores, recall_scores)
+
+# Calculando as médias das métricas
+mean_iou <- mean(iou_scores)
+mean_precision <- mean(precision_scores)
+mean_recall <- mean(recall_scores)
+mean_f1 <- mean(f1_scores)
+
+# Exibindo as métricas
+cat("Média IoU: ", mean_iou, "\n")
+cat("Média Precisão: ", mean_precision, "\n")
+cat("Média Recall: ", mean_recall, "\n")
+cat("Média F1-Score: ", mean_f1, "\n")
+```

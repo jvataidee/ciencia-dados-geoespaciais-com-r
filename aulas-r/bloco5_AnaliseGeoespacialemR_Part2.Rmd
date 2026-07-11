@@ -1,0 +1,428 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+![](D:/Pos-GeoDataScience/M2-R/images/01 Assinatura Horizontal COR.png)
+
+
+# **Análise Geoespacial em R Part 2**
+Para trabalhar com dados raster em R, utilizamos o pacote raster, que oferece uma ampla gama de funções para a criação, leitura, manipulação e processamento de dados raster. Este pacote permite trabalhar eficientemente com grandes conjuntos de dados raster que podem ser grandes demais para caber na memória principal do computador. Em tais casos, o pacote raster oferece a possibilidade de processar os dados em partes menores, evitando a necessidade de carregar o arquivo raster completo na RAM.
+
+```{r}
+# Instalar biblioteca
+#install.packages("raster", dependencies = TRUE)
+#install.packages("sf",dependencies = TRUE)
+#install.packages("terra",dependencies = TRUE)
+#install.packages("marmap",dependencies = TRUE)
+#install.packages("tmap",dependencies = TRUE)
+#install.packages("tidyverse")
+#install.packages("viridis")
+```
+
+```{r}
+# Iportar bibliotecas
+library(raster)
+library(ggplot2)
+library(sf)
+library(terra)
+library(dplyr)
+library(tmap)
+library(tidyverse)
+library(readr)
+library(viridis)
+```
+
+```{r}
+unzip("D:/Pos-GeoDataScience/M2-R/dado_pratica/07S36_ZN.zip", exdir = "D:/Pos-GeoDataScience/M2-R/dado_pratica/raster")
+```
+
+```{r}
+# Carregar dados geoespaciais
+municipios <- st_read("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Municipios/PB_Municipios_2022.shp")
+joaoPessoa <- municipios %>% filter(municipios$NM_MUN == 'João Pessoa')
+
+```
+```{r}
+# Ler dados raster
+rasterData <- raster("D:/Pos-GeoDataScience/M2-R/dado_pratica/raster/07S36_ZN.tif", format = "GTiff")
+rasterData
+```
+```{r}
+plot(rasterData,)
+plot(st_geometry(joaoPessoa$geometry), add = TRUE)
+```
+
+### **Recortar Image**
+Para realizar o recorte de uma imagem raster no R, utilizando a geometria de um shapefile específico, você pode seguir os seguintes passos, adaptando o procedimento realizado em Python para o ambiente do R. A função equivalente a mask no pacote raster do R será usada para aplicar o recorte.
+
+```{r}
+# Recortar raster pelo polígono do município
+rasterRecortado <- mask(rasterData, joaoPessoa)
+```
+
+```{r}
+joaoPessoa_sp <- as(joaoPessoa, "Spatial")
+
+# Obtendo os limites da geometria do shapefile
+xmin <- bbox(joaoPessoa_sp)[1,1]
+xmax <- bbox(joaoPessoa_sp)[1,2]
+ymin <- bbox(joaoPessoa_sp)[2,1]
+ymax <- bbox(joaoPessoa_sp)[2,2]
+```
+
+```{r}
+# Visualizar dados
+plot(rasterRecortado, xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(st_geometry(joaoPessoa), add = TRUE)
+```
+
+### **Fatiamento e Reclassificação**
+Para realizar o fatiamento e a reclassificação de um raster no R, você pode usar a função `reclassify()`. Essa função permite reclassificar os valores de um raster, transformando os valores originais em novas categorias com base em intervalos especificados.
+
+
+```{r}
+# Definir as regras de reclassificação
+reclassRules <- matrix(c(-Inf, 0, NA,
+                         0, 10, 1,
+                         10, 60, 2,
+                         60, 100, 3,
+                         100, Inf, NA), byrow = TRUE, ncol = 3)
+
+```
+
+```{r}
+# Aplicar a reclassificação
+rasterReclassificado <- reclassify(rasterRecortado, reclassRules)
+
+# Visualizar o raster reclassificado
+plot(rasterReclassificado, main = "Raster Reclassificado", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+### **Redimensionar**
+Para redimensionar imagens raster no R, podemos usar o pacote raster para ajustar a resolução espacial de um raster. Embora o pacote raster não tenha uma função direta equivalente à resize do skimage em Python, podemos alcançar um resultado similar alterando a resolução do raster e utilizando a função `aggregate()` para aumentar a resolução ou `disaggregate()` para diminuir a resolução.
+
+```{r}
+# Determinar o fator de agregação para alcançar aproximadamente a resolução desejada
+fator <- sqrt(ncell(rasterReclassificado) / (50 * 50))
+
+# Diminuir a resolução: Usar aggregate() para resolução mais baixa
+rasterRedimensionado <- aggregate(rasterReclassificado, fact=fator)
+```
+
+
+```{r}
+# Visualizar o raster redimensionado
+plot(rasterRedimensionado, main="Raster Redimensionado", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+### **Mudar Sistema de Referências**
+Também podemos realizar a Reprojeção com R, usando uma única função `projectRaster`.
+
+```{r}
+# Definir o sistema de referências
+dest_crs <- "EPSG:3395" #WGS 84 / World Mercator
+
+# Reprojetar o raster para o novo sistema de referências
+raster_reprojetado <- projectRaster(rasterReclassificado, crs=dest_crs)
+```
+
+### **Salvar Imagens**
+Todos os processamento que realizamos podem ser salvo também usando a função `writeRaster` para isso.
+
+```{r}
+# Definir o caminho de saída para o raster reprojetado
+caminho_reprojetado <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/raster/07S36_ZN_PROJECT.tif"
+
+# Salvar o raster reprojetado
+writeRaster(raster_reprojetado, caminho_reprojetado, overwrite=TRUE)
+```
+
+### **Dividir Imagem**
+Subdividir uma imagem no R em bem parecido com o que vimos no Pthon. O processo segue a mesma lógica que fizemos anteriormente, onde o primeiro processo será encontrar as dimensões da nossa área de interesse e criar em seguida as partes da imagem.
+
+
+```{r}
+# Projetando regi'ao de interesse
+joaoPessoa_project <- st_transform(joaoPessoa, crs = 3395)
+
+# Obter a extensão total do raster
+ext_total <- extent(joaoPessoa_project)
+
+# Calcular o centro da extensão em X e Y
+x_center <- ext_total@xmin + (ext_total@xmax - ext_total@xmin) / 2
+y_center <- ext_total@ymin + (ext_total@ymax - ext_total@ymin) / 2
+
+# Criar objetos de extensão para cada quadrante
+ext_se <- extent(ext_total@xmin, x_center, ext_total@ymin, y_center)
+ext_sd <- extent(x_center, ext_total@xmax, ext_total@ymin, y_center)
+ext_ie <- extent(ext_total@xmin, x_center, y_center, ext_total@ymax)
+ext_id <- extent(x_center, ext_total@xmax, y_center, ext_total@ymax)
+```
+
+```{r}
+# Usar crop para criar cada parte
+parte_superior_esquerda <- crop(raster_reprojetado, ext_se)
+parte_superior_direita <- crop(raster_reprojetado, ext_sd)
+parte_inferior_esquerda <- crop(raster_reprojetado, ext_ie)
+parte_inferior_direita <- crop(raster_reprojetado, ext_id)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(parte_superior_esquerda, main="Superiro Esquerdo")
+plot(parte_superior_direita, main="Superior Direito") 
+plot(parte_inferior_esquerda, main="Inferior Esquerdo")
+plot(parte_inferior_direita, main="Inferior Direita")
+
+```
+
+### **Mosaico**
+Para combinar ou criar um mosaico com múltiplos rasters o procedimento geral seria feito com a função `merge`.
+
+```{r}
+# Exemplo usando merge para combinar duas partes
+mosaico_superior <- merge(parte_superior_esquerda, parte_superior_direita)
+mosaico_inferior <- merge(parte_inferior_esquerda, parte_inferior_direita)
+
+# E depois combinando as duas metades
+imagem_completa <- merge(mosaico_superior, mosaico_inferior, along = 2) 
+
+plot(imagem_completa, main = "Mosaico do Raster")
+```
+
+### **Operações Matemáticas**
+No ambiente da linguagem R, uma ampla gama de operações pode ser executada em dados raster com eficiência e flexibilidade, especialmente através do uso do pacote `raster`.
+
+```{r}
+# 1. Normalização
+normalized <- (rasterRecortado - minValue(rasterRecortado)) / (maxValue(rasterRecortado) - minValue(rasterRecortado))
+
+# 2. Logaritmo
+log_transformed <- log1p(rasterRecortado)
+
+# 3. Exponencial
+exponential_transformed <- exp(rasterRecortado)
+
+# 4. Inversão de Valores
+inverted <- maxValue(rasterRecortado) - rasterRecortado
+```
+
+```{r}
+# Para visualização, você pode usar o par(mfrow=c(n,m)) para organizar os plots e plot para visualizar cada raster
+par(mfrow=c(2,3))
+plot(normalized, main="Normalizado", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(log_transformed, main="Logaritmo", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(exponential_transformed, main="Exponencial", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(inverted, main="Invertido", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+
+```
+
+```{r}
+# Outras operações:
+soma_constante <- rasterRecortado + 150
+adicao_imagens <- rasterRecortado + inverted
+media_imagens <- (rasterRecortado + rasterRecortado) / 2
+multiplicacao_constante <- rasterRecortado * 10
+multiplicacao_imagens <- rasterRecortado * rasterRecortado
+
+```
+
+
+```{r}
+par(mfrow=c(2,3))
+plot(soma_constante, main="Soma Constante", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(adicao_imagens, main="Adição de Imagens", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(media_imagens, main="Média", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(multiplicacao_constante, main="Multiplicação Constante", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plot(multiplicacao_imagens, main="Multiplicação Imagens", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+### **Raster to Polygon e rasterize**
+No R para realizar a conversão de raster para polígonos e vice-versa, podemos utilizar o mesmo pacote `raster` em conjunto com `sf`. Entretanto, diferente do Python no R é bem mais fácil, podemos realizar a operação tulizando somente uma função.
+
+```{r}
+poligonos <- rasterToPolygons(rasterReclassificado, fun=function(x){x==1},
+                              na.rm=TRUE)
+head(poligonos)
+```
+
+```{r}
+# Criar um raster vazio com a mesma extensão e resolução que o original
+raster_template <- raster(extent(poligonos), nrow=30, ncol=30)
+crs(raster_template) <- CRS("+proj=longlat +datum=WGS84")
+
+raster_from_polygons <- rasterize(poligonos, raster_template, field=1)
+
+plot(raster_from_polygons, main="Soma Constante", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+## **Análise Espacial**
+Para iniciar uma análise espacial abrangente utilizando dados do Open Street Map (OSM) através da API Geofabrik, focada na região Nordeste do Brasil, no ambiente de programação R, podemos seguir uma abordagem sistemática que envolve várias etapas essenciais. Essas etapas nos permitirão extrair, processar e analisar dados geoespaciais , utilizando as capacidades do R para isso. 
+
+```{r}
+# URL do arquivo shapefile da região Nordeste
+#url <- "https://download.geofabrik.de/south-america/brazil/nordeste-latest-free.shp.zip"
+#nome_arquivo <- "nordeste-latest-free.shp.zip"
+
+# Baixar o arquivo shapefile
+#options(timeout=300) 
+#download.file(url, destfile = nome_arquivo, mode = "wb", )
+```
+
+Após o download, utilizaremos a função unzip para extrair os arquivos shapefile, preparando-os para a leitura e manipulação no R.
+
+```{r}
+# Descompactar o arquivo
+#nome_arquivo <- "nordeste-latest-free.shp.zip"
+#unzip(nome_arquivo, exdir = "D:/Pos-GeoDataScience/M2-R/dado_pratica/nordeste-latest-free")
+```
+
+Com os dados descompactados, procederemos à leitura dos shapefiles usando a função `st_read`, como fizemos anteriormente.
+
+```{r}
+# Caminho para o arquivo shapefile desejado
+caminho_shapefile <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/nordeste-latest-free/gis_osm_pois_free_1.shp"
+
+# Ler o shapefile
+dados_osm <- st_read(caminho_shapefile)
+restaurantes <- dados_osm %>% filter(fclass == "restaurant")
+restaurantes <- st_transform(restaurantes, crs = 3857)
+head(restaurantes)
+```
+
+### **Seleção Espacial**
+Para realizar uma seleção espacial em R, podemos utilizar `st_within`. Este processo envolve filtrar um conjunto de dados espaciais, como pontos de interesse (por exemplo, restaurantes), com base na sua localização dentro de uma área específica (por exemplo, um município). Vamos também ajustar os sistemas de referência de coordenadas (CRS) para garantir a compatibilidade entre os conjuntos de dados.
+
+Primeiro, precisamos garantir que ambos os conjuntos de dados, os pontos de interesse e a área de interesse (município específico), estejam no mesmo sistema de referência de coordenadas para realizar operações espaciais precisas.
+
+```{r}
+# Carregar dados geoespaciais
+municipios <- st_read("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Municipios/PB_Municipios_2022.shp")
+joaoPessoa <- municipios %>% filter(municipios$NM_MUN == 'João Pessoa')
+joaoPessoa <- st_transform(joaoPessoa, crs = 3857)
+```
+Agora, podemos usar a função `st_within` do pacote sf para realizar a seleção espacial, identificando os restaurantes que estão dentro do município específico.
+
+```{r}
+# Realizar a seleção espacial
+indices <- st_within(restaurantes, joaoPessoa, sparse = FALSE)
+
+# Filtrar os restaurantes que estão dentro de João Pessoa
+restaurantes_joaoPessoa <- restaurantes[indices, ]
+```
+
+```{r}
+head(restaurantes_joaoPessoa)
+```
+
+```{r}
+# Usando o pacote sf para plotagem simples
+plot(st_geometry(joaoPessoa))
+plot(st_geometry(restaurantes_joaoPessoa), add = TRUE, col = 'blue', pch = 20)
+
+#plotando com tmap
+tm_shape(joaoPessoa) +
+  tm_borders() +
+  tm_shape(restaurantes_joaoPessoa) +
+  tm_dots(col = "blue", size = 0.2) +
+  tm_layout(main.title = "Restaurantes em João Pessoa")
+
+```
+
+### **Join**
+Para realizar a operação de join, podemos usar o pacote sf para trabalhar com dados espaciais e o pacote dplyr para manipulação de dados. 
+
+
+```{r}
+# Ler dados de faturamento dos restaurantes
+restaurante_faturamento <- read_csv("D:/Pos-GeoDataScience/M2-R/dado_pratica/restaurantes.csv")
+```
+
+```{r}
+# Certificar-se de que os IDs estão no mesmo tipo para o join
+restaurantes_joaoPessoa$osm_id <- as.integer(restaurantes_joaoPessoa$osm_id)
+restaurante_faturamento$osm_id <- as.integer(restaurante_faturamento$osm_id)
+
+
+# Realizar o join pelo ID
+lojas_com_atributos <- inner_join(restaurantes_joaoPessoa, restaurante_faturamento, by = "osm_id")
+
+head(lojas_com_atributos$fat)
+```
+
+### **Distância**
+No R também podemos realizar o cálculo da matriz de origem destino ou matriz de distâncias entre pares de pontos, utilizaremos o pacote `sf` para trabalhar com dados espaciais e a função `st_distance` para calcular a distância entre pontos.
+
+
+```{r}
+# Calcular a matriz de distância
+matriz_distancia <- st_distance(head(lojas_com_atributos))
+
+# Exibir a matriz de distância
+print(matriz_distancia)
+```
+
+### **Área**
+Para realizar o processamento de cálculos de áreas utiliza-se a função `st_area`. Aqui neste exemplo aplicaremos um buffer em torno de cada ponto e combinando esses buffers em uma única área contínua para avaliar a cobertura ou o impacto de entidades específicas, como lojas ou serviços, em uma área determinada.
+
+```{r}
+# Criar buffers de 30 metros ao redor de cada ponto
+buffers <- st_buffer(lojas_com_atributos, dist = 1000, crs = 3857)
+
+# Dissolver os buffers em um único polígono
+buffer_dissolvido <- st_union(buffers)
+```
+
+```{r}
+# Calcular a área do buffer dissolvido
+area_buffer <- st_area(buffer_dissolvido, check_ring_order = FALSE)
+print(paste("Área do Buffer Dissolvido:", area_buffer, "m²"))
+```
+
+```{r}
+# Plot com a delimitação do município, buffer e lojas
+ggplot() +
+  geom_sf(data = joaoPessoa, fill = 'grey', alpha = 0.3, size = 0.5) + # Delimitação do município
+  geom_sf(data = buffer_dissolvido, fill = 'blue', alpha = 0.5) + # Buffer ao redor das lojas
+  geom_sf(data = lojas_com_atributos, color = 'red', size = 0.5) + # Lojas
+  theme_minimal() +
+  ggtitle("Buffer ao Redor das Lojas com Delimitação do Município")
+```
+
+### **Sumarizar**
+Outro processo importante é a sumarização espacial, que permite agrupamentos baseados em atributos específicos. Esse processo envolve a agregação de informações de entidades geoespaciais que se intersectam, fornecendo insights significativos por meio de métricas como a contagem de pontos, o valor máximo, média, o comprimento total de linhas, ou a área combinada de polígonos que se sobrepõem.
+
+```{r}
+setores <- st_read("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Setores/PB_Setores_2021.shp")
+setores_proj <- st_transform(setores, crs = 3857)
+lojas_com_atributos<- st_transform(lojas_com_atributos, crs = 3857)
+```
+
+```{r}
+lojas_em_setores <- st_join(lojas_com_atributos, setores_proj, join = st_within)
+```
+
+```{r}
+sumarizacao <- lojas_em_setores %>%
+  group_by(CD_SETOR) %>%
+  summarise(
+    quantidade_lojas = n(),
+    media_faturamento = mean(fat, na.rm = TRUE),
+    faturamento_maximo = max(fat, na.rm = TRUE),
+    faturamento_minimo = min(fat, na.rm = TRUE)
+  )
+
+```
+
+```{r}
+print(sumarizacao)
+```
+
+```{r}
+plot(sumarizacao)
+```
+
+
+
+

@@ -1,0 +1,453 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+![](D:/Pos-GeoDataScience/M2-R/images/01 Assinatura Horizontal COR.png)
+
+
+# **Estatistica Analise Dados em R**
+A análise de dados e a estatística em R é uma jornada fascinante, abrangendo desde conceitos fundamentais até técnicas avançadas. Vamos adaptar os tópicos mencionados para o ambiente R, destacando as funcionalidades e ferramentas disponíveis neste ecossistema.
+
+## **Estatística Descritiva**
+A estatística descritiva em R se concentra na organização, resumo e interpretação de dados. Usamos pacotes como `base`, `dplyr` e `tidyr` para manipular dados, e funções como `mean`, `median`, `sd` para calcular medidas descritivas.
+
+### **Frequência de Dados Qualitativos**
+Para analisar a frequência de dados qualitativos em R, utilizamos funções como `table` e `prop.table`. Vamos explorar isso com o conjunto de dados `iris` disponível no R base.
+
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+# Carregar o conjunto de dados Iris
+data(iris)
+head(iris)
+```
+
+```{r}
+# Tabela de frequência
+frequencia <- table(iris$Species)
+print(frequencia)
+```
+
+```{r}
+# Frequência relativa
+frequencia_relativa <- prop.table(frequencia) * 100
+print(frequencia_relativa)
+```
+#### **Frequência de Dados Quantitativos**
+Para dados quantitativos, seguimos uma abordagem similar, utilizando table para frequências absolutas e prop.table para relativas.
+
+```{r}
+# Frequência absoluta
+frequencia_absoluta <- table(iris$Sepal.Length)
+```
+
+```{r}
+# Frequência relativa
+frequencia_relativa_quantitativa <- prop.table(frequencia_absoluta) * 100
+print(frequencia_relativa_quantitativa)
+```
+
+## **Medidas de Resumo em R**
+As medidas de resumo são fundamentais na estatística em R e são usadas para sintetizar informações complexas. Elas são divididas em medidas de posição ou localização e medidas de dispersão ou variabilidade.
+
+#### Média Aritmética
+Representa o valor médio dos dados.
+```{r}
+# Calcular média
+media <- mean(iris$Sepal.Length)
+print(paste("Média:", media))
+```
+#### Mediana
+O valor que divide o conjunto de dados ao meio.
+```{r}
+# Calcular mediana
+mediana <- median(iris$Sepal.Length)
+print(paste("Mediana:", mediana))
+```
+#### Moda
+O valor que mais repete-se.
+```{r}
+Moda <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+moda <- Moda(iris$Sepal.Length)
+print(paste("Moda:", moda))
+```
+#### Quartis
+Correspondem, respectivamente, ao primeiro quartil (Q1), mediana (Q2) e terceiro quartil (Q3), indicando a distribuição dos dados em 25%, 50% e 75%.
+```{r}
+# Calcular quartis
+quartis <- quantile(iris$Sepal.Length, c(0.25, 0.5, 0.75))
+print(quartis)
+```
+#### Amplitude
+Diferença entre o maior e o menor valor.
+```{r}
+# Calcular Amplitude
+amplitude <- max(iris$Sepal.Length) - min(iris$Sepal.Length)
+print(paste("Amplitude:", amplitude))
+```
+
+#### Variância
+Média dos quadrados das diferenças entre cada valor e a média.
+```{r}
+variancia <- var(iris$Sepal.Length)
+print(paste("Variância:", variancia))
+
+```
+#### Desvio Padrão
+Raiz quadrada da variância.
+```{r}
+desvio_padrao <- sd(iris$Sepal.Length)
+print(paste("Desvio Padrão:", desvio_padrao))
+```
+
+#### Erro-padrão
+Desvio padrão da distribuição da média da amostra.
+```{r}
+erro_padrao <- desvio_padrao / sqrt(length(iris$Sepal.Length))
+print(paste("Erro-padrão:", erro_padrao))
+```
+#### Coeficiente de Variação
+Relação percentual entre o desvio padrão e a média.
+```{r}
+cv <- (desvio_padrao / media) * 100
+print(paste("Coeficiente de Variação:", cv, "%"))
+```
+
+## **Estatística Descritiva Bivariada em R**
+A Estatística Descritiva Bivariada em R analisa a relação entre duas variáveis num conjunto de dados. Utilizamos medidas como o coeficiente de correlação de Spearman, covariância e correlação de Pearson, além do teste de Qui-Quadrado.
+
+### Coeficiente de Correlação de Spearman
+O coeficiente de Spearman avalia a relação entre variáveis ordinais.
+
+```{r}
+#install.packages("ggcorrplot")
+```
+
+```{r}
+library(ggplot2)
+library(ggcorrplot)
+```
+
+```{r}
+# Carregar o conjunto de dados Iris
+data(iris)
+```
+
+```{r}
+# Coeficiente de correlação de Spearman
+cor_spearman <- cor(iris$Sepal.Length, iris$Petal.Length, method = "spearman")
+print(paste("Correlação de Spearman:", cor_spearman))
+```
+### Covariância
+A covariância indica a variação conjunta entre duas variáveis quantitativas.
+
+```{r}
+# Calcular covariância
+covariancia <- cov(iris$Sepal.Length, iris$Petal.Length)
+print(paste("Covariância:", covariancia))
+
+```
+
+```{r}
+# Matriz de covariância
+cov_matrix <- cov(iris[,1:4])
+
+# Plotando a matriz de covariância
+ggcorrplot(cov_matrix, lab = TRUE)
+```
+
+### Correlação de Pearson
+O coeficiente de Pearson mede a relação linear entre duas variáveis quantitativas.
+
+```{r}
+# Coeficiente de correlação de Pearson
+cor_pearson <- cor(iris$Sepal.Length, iris$Petal.Length)
+print(paste("Correlação de Pearson:", cor_pearson))
+
+```
+
+```{r}
+# Matriz de correlação
+cor_matrix <- cor(iris[,1:4])
+
+# Plotando a matriz de correlação
+ggcorrplot(cor_matrix, lab = TRUE)
+```
+
+### Qui-Quadrado
+O teste de Qui-Quadrado avalia a associação entre duas variáveis categóricas.
+
+```{r}
+# Teste de Qui-Quadrado
+chisq_test <- chisq.test(iris$Species, iris$Species)
+print(chisq_test)
+```
+## **Medidas de forma**
+As medidas de forma, como assimetria e curtose, são essenciais na estatística descritiva para descrever a distribuição dos dados.
+
+### Assimetria (Skewness)
+A assimetria é uma medida que descreve o grau de desvio da simetria em uma distribuição de dados.
+
+```{r}
+#install.packages("e1071")
+```
+
+```{r}
+library(e1071)
+library(ggplot2)
+```
+
+```{r}
+# Gerar dados com diferentes assimetrias
+set.seed(12)
+dados_simetricos <- rnorm(1000) # Dados simétricos
+dados_negativo <- rnorm(1000, mean = 5, sd = 0.5) - abs(rnorm(100)) # Assimetria negativa
+dados_positivo <- rnorm(1000, mean = 5, sd = 0.5) + abs(rnorm(100)) # Assimetria positiva
+
+```
+
+```{r}
+# Calcular assimetria
+skewness_simetricos <- skewness(dados_simetricos)
+skewness_negativo <- skewness(dados_negativo)
+skewness_positivo <- skewness(dados_positivo)
+```
+
+```{r}
+# Exibir valores de assimetria
+print(paste("Assimetria Simétricos:", skewness_simetricos))
+print(paste("Assimetria Negativa:", skewness_negativo))
+print(paste("Assimetria Positiva:", skewness_positivo))
+```
+
+```{r}
+# Histograma para dados simétricos
+ggplot(data.frame(Valores = dados_simetricos), aes(x = Valores)) +
+  geom_histogram(aes(y = ..density..), bins = 50, fill = "blue", alpha = 0.7) +
+  geom_density(color = "darkblue", size = 1) +
+  ggtitle("Histograma de Dados Simétricos") +
+  theme_minimal()
+
+# Histograma para dados com assimetria negativa
+ggplot(data.frame(Valores = dados_negativo), aes(x = Valores)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "green", alpha = 0.7) +
+  geom_density(color = "darkgreen", size = 1) +
+  ggtitle("Histograma de Dados com Assimetria Negativa") +
+  theme_minimal()
+
+# Histograma para dados com assimetria positiva
+ggplot(data.frame(Valores = dados_positivo), aes(x = Valores)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "red", alpha = 0.7) +
+  geom_density(color = "darkred", size = 1) +
+  ggtitle("Histograma de Dados com Assimetria Positiva") +
+  theme_minimal()
+```
+
+### Curtose (kurtosis)
+A curtose é uma medida que descreve a "altura" e "nitidez" do pico central de uma distribuição e a "espessura" das caudas.
+
+```{r}
+#install.packages("devtools")
+#install.packages("moments")
+```
+
+```{r}
+library(dplyr)
+library(plotly)
+library(moments)
+```
+
+
+```{r}
+# Gerar dados com diferentes curtoses
+dados_plati <- runif(10000) # Dados platicúrticos
+dados_lepto <- rt(1000, df = 3) # Dados leptocúrticos
+dados_meso <- rnorm(1000) # Dados mesocúrticos
+
+# Calcular curtose
+curtose_plati <- kurtosis(dados_plati)
+curtose_lepto <- kurtosis(dados_lepto)
+curtose_meso <- kurtosis(dados_meso)
+
+# Exibir valores de curtose
+print(paste("Curtose Platicúrtica:", curtose_plati))
+print(paste("Curtose Leptocúrtica:", curtose_lepto))
+print(paste("Curtose Mesocúrtica:", curtose_meso))
+
+```
+```{r}
+# Histograma para dados Mesocúrtica
+ggplot(data.frame(valores = dados_meso), aes(x = valores)) +
+  geom_histogram(aes(y = ..density..), bins = 50, fill = "blue", alpha = 0.7) +
+  geom_density(color = "darkblue", size = 1) +
+  ggtitle("Histograma de Dados Mesocúrtica") +
+  theme_minimal()
+
+# Histograma para dados platicúrticos
+ggplot(data.frame(valores = dados_plati), aes(x = valores))  +
+  geom_histogram(aes(y = ..density..), bins = 50, fill = "green", alpha = 0.7) +
+  geom_density(color = "darkgreen", size = 1) +
+  ggtitle("Histograma de Dados platicúrticos") +
+  theme_minimal()
+
+# Histograma para dados leptocúrticos
+ggplot(data.frame(valores = dados_lepto), aes(x = valores))  +
+  geom_histogram(aes(y = ..density..), bins = 50, fill = "red", alpha = 0.7) +
+  geom_density(color = "darkred", size = 1) +
+  ggtitle("Histograma de Dados leptocúrticos") +
+  theme_minimal()
+
+```
+
+## **Geração de Gráficos**
+Sabemos que os gráficos são ferramentas poderosas para visualizar e compreender dados, No R você pode criar cada um dos tipos de gráficos usando ggplot2 e plotly.
+
+```{r}
+# Carregar a bibliotecas
+library(ggplot2)
+library(plotly)
+```
+
+```{r}
+# Converter a tabela de contingência em data.frame
+frequencia_df <- as.data.frame(frequencia)
+```
+
+```{r}
+# Renomeando colunas
+names(frequencia_df) <- c("Categoria", "f_i")
+```
+
+### **Gráfico de Barras**
+```{r}
+# Gráfico de Barras
+ggplot(iris, aes(x = Species, y = Sepal.Length, fill = Species)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Gráfico de Barras - Comprimento da Sépala por Espécie", x = "Espécie", y = "Comprimento da Sépala")
+
+```
+
+### **Gráfico de Pizza**
+```{r}
+# Gráfico de Pizza
+frequencia_iris <- iris %>% count(Species)
+pie(frequencia_iris$n, labels = frequencia_iris$Species, main = "Gráfico de Pizza - Distribuição das Espécies")
+
+```
+
+### **Gráfico de Linha**
+```{r}
+# Dados de meses e perdas associadas
+data <- data.frame(
+  Mes = c("January", "February", "March", "April", "May", "June",
+          "July", "August", "September", "October", "November", "December"),
+  Perdas = c(0.42, 0.38, 0.12, 0.34, 0.22, 0.15, 0.18, 0.31, 0.47, 0.24, 0.42, 0.09)
+)
+```
+
+```{r}
+# Criando um gráfico de linhas
+ggplot(data, aes(x = Mes, y = Perdas, group = 1))+
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 3) +
+  labs(title = "Perdas Mensais", x = "Mês", y = "Perdas") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+```
+
+
+### **Gráfico de Dispersão**
+```{r}
+ggplot(iris, aes(x = Sepal.Length, y = Petal.Length, color = Species)) +
+  geom_point() +
+  labs(title = "Gráfico de Dispersão - Comprimento da Sépala vs Comprimento da Pétala", x = "Comprimento da Sépala", y = "Comprimento da Pétala")
+
+```
+
+### **Sobrepondo gráficos**
+```{r}
+# Calculando as médias para cada espécie
+medias <- iris %>%
+  group_by(Species) %>%
+  summarize(Media_Sepal = mean(Sepal.Length), Media_Petal = mean(Petal.Length))
+
+# Criando o gráfico de barras
+ggplot(medias, aes(x = Species, y = Media_Sepal, group = 1)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  labs(title = "Média do Comprimento da Sépala e da Pétala por Espécie", x = "Espécie", y = "Média") +
+  # Adicionando o gráfico de linha
+  geom_line(aes(y = Media_Petal), color = "red", size = 1) +
+  geom_point(aes(y = Media_Petal), color = "red", size = 3) +
+  # Adicionando uma legenda secundária para o eixo Y
+  scale_y_continuous(sec.axis = sec_axis(~ ., name = "Média do Comprimento da Pétala"))
+
+```
+
+### **Histograma**
+```{r}
+# Histograma
+ggplot(iris, aes(x = Sepal.Length)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.7) +
+  labs(title = "Histograma - Comprimento da Sépala", x = "Comprimento da Sépala", y = "Frequência")
+```
+
+### **Boxplot**
+```{r}
+# Criando o boxplot
+ggplot(data = iris, aes(x = Species, y = Sepal.Length, fill = Species)) +
+  geom_boxplot() +
+  labs(title = "Boxplot do Comprimento da Sépala por Espécie", x = "Espécie", y = "Comprimento da Sépala") +
+  theme_minimal()
+```
+
+## **Estatística Inferencial**
+A Estatística Inferencial envolve a análise e interpretação de dados amostrais para fazer inferências sobre uma população maior.
+
+### **Intervalos de Confiança**
+Intervalos de confiança oferecem uma faixa de valores prováveis para um parâmetro populacional.
+
+```{r}
+data(mtcars)
+head(mtcars)
+```
+
+Calcular média e desvio padrão da milhagem por galão (mpg)
+
+```{r}
+mean_mpg <- mean(mtcars$mpg)
+std_mpg <- sd(mtcars$mpg)
+
+print(mean_mpg)
+print(std_mpg)
+```
+
+```{r}
+# Calcular intervalo de confiança para a média de mpg
+conf_interval <- t.test(mtcars$mpg)$conf.int
+print(conf_interval)
+
+```
+
+### **Testes de Hipóteses**
+Testes de hipóteses são utilizados para tomar decisões estatísticas com base em dados amostrais.
+
+```{r}
+# Separar dados em dois grupos
+manual <- mtcars %>% filter(am == 1) %>% .$mpg
+automatic <- mtcars %>% filter(am == 0) %>% .$mpg
+```
+
+```{r}
+# Teste t para comparar a média de mpg entre carros manuais e automáticos
+t_result <- t.test(manual, automatic)
+print(t_result)
+```
+

@@ -1,0 +1,693 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+![](D:/Pos-GeoDataScience/M2-R/images/01 Assinatura Horizontal COR.png)
+
+# **Desafio Proposto**
+
+Este projeto tem como objetivo te guiar por uma jornada prática da disciplian de Python. A proposta é aplicar, passo a passo, os conceitos discutidos nas disciplinas de Sensoriamento Remoto e de Programação Python.
+
+## **Objetivos da Atividade:**
+* Compreender os princípios fundamentais da correção atmosférica em imagens de sensoriamento remoto.
+* Implementar técnicas de correção atmosférica.
+* Analisar o impacto das correções na qualidade das imagens e nos índices espectrais derivados.
+* Desenvolver habilidades em programação para Ciência de Dados Geográficos.
+
+### **Tópicos da Atividade:**
+* Conversão de valores digitais para radiância e reflectância
+* Correção atmosférica pelo método DOS (Dark Object Subtraction)
+* Mascaramento de nuvens
+* Cálculo e comparação de índices de vegetação (NDVI)
+* Realizar classificação do NDVI
+
+### **Metodologia:**
+* Utilização de bibliotecas Python como `rasterio`,`spectrl`,`earthpy`,`geopandas`, `scipy`, `numpy`, `matplotlib` 
+ e outras bibliotecas para processamento e análise das imagens.
+* Implementação de funções para cada etapa da correção atmosférica, permitindo a automação do processo.
+* Análise comparativa dos resultados antes e depois da aplicação das correções.
+* Geração do histograma dos resultados de antes e depois da aplicação das correções.
+
+### **Insumos:**
+
+* [Imagem Bruta L1 compactado `.tar`](https://drive.google.com/file/d/1NtFt1vBAoH7P6xJf_XGzfwHbkfbZJsZU/view?usp=drive_link)
+
+# **Preparação da Imagem**
+
+Neste primeiro passo, será realizada a **importação da imagem raster** e sua **visualização**, incluindo a **geração do histograma**. Utilizaremos funções predefinidas como `carregar_raster()`, `visualizar_imagem()` e `plotar_histograma()` para facilitar o processo.
+
+## **Instalação e Carregamento de Pacotes**
+
+```{r setup, message=FALSE, warning=FALSE}
+# Instalação dos pacotes
+if (!require("terra")) install.packages("terra")
+if (!require("raster")) install.packages("raster")
+if (!require("sf")) install.packages("sf")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("rasterVis")) install.packages("rasterVis")
+if (!require("tmap")) install.packages("tmap")
+if (!require("R.utils")) install.packages("R.utils")
+if (!require("tibble")) install.packages("tibble")
+
+# Carregar os pacotes
+library(terra)
+library(raster)
+library(sf)
+library(ggplot2)
+library(rasterVis)
+library(tmap)
+library(R.utils)
+library(tibble)
+```
+
+```{r}
+# Função para descompactar arquivos .tar (como as imagens Landsat)
+descompactar_dado <- function(arquivo_path, extract_dir) {
+  untar(arquivo_path, exdir = extract_dir)
+  cat(paste0("Arquivo ", arquivo_path, " descompactado em ", extract_dir, "\n"))
+}
+
+# Exemplo de uso (ajuste o caminho para o seu arquivo)
+descompactar_dado("D:/Pos-GeoDataScience/dados_desafio/LC09_L1TP_214065_20250502_20250502_02_T1.tar", "D:/Pos-GeoDataScience/dados_desafio")
+```
+
+```{r}
+# Função para carregar o raster central (corte de 2500x2500)
+carregar_raster <- function(pasta_bandas, tamanho = 2500) {
+  arquivos_tif <- list.files(pasta_bandas, pattern = "\\.TIF$", full.names = TRUE)
+  arquivos_tif <- arquivos_tif[!grepl("_B1|_B8", arquivos_tif)]
+
+  if (length(arquivos_tif) == 0) stop("Nenhum arquivo .TIF encontrado.")
+
+  r_stack <- rast(arquivos_tif)
+  centro <- ext(r_stack)
+  xmid <- (centro[1] + centro[2]) / 2
+  ymid <- (centro[3] + centro[4]) / 2
+
+  x_min <- xmid - tamanho / 2
+  x_max <- xmid + tamanho / 2
+  y_min <- ymid - tamanho / 2
+  y_max <- ymid + tamanho / 2
+  janela <- ext(x_min, x_max, y_min, y_max)
+
+  r_crop <- crop(r_stack, janela)
+
+  return(r_crop)  # Retorna como SpatRaster
+}
+```
+
+```{r}
+extrair_parametros_mtl <- function(mtl_path) {
+  linhas <- readLines(mtl_path)
+  parametros <- list(
+    ganho = list(),
+    offset = list(),
+    ESUN = list(),
+    distancia = NA,
+    angulo_zenital = NA
+  )
+
+  for (linha in linhas) {
+    if (grepl("REFLECTANCE_MULT_BAND_", linha)) {
+      banda <- as.integer(sub(".*REFLECTANCE_MULT_BAND_(\\d+).*", "\\1", linha))
+      ganho <- as.numeric(sub(".*=\\s*", "", linha))
+      parametros$ganho[[as.character(banda)]] <- ganho
+    } else if (grepl("REFLECTANCE_ADD_BAND_", linha)) {
+      banda <- as.integer(sub(".*REFLECTANCE_ADD_BAND_(\\d+).*", "\\1", linha))
+      offset <- as.numeric(sub(".*=\\s*", "", linha))
+      parametros$offset[[as.character(banda)]] <- offset
+    } else if (grepl("RADIANCE_MULT_BAND_", linha)) {
+      banda <- as.integer(sub(".*RADIANCE_MULT_BAND_(\\d+).*", "\\1", linha))
+      esun <- as.numeric(sub(".*=\\s*", "", linha))
+      parametros$ESUN[[as.character(banda)]] <- esun
+    } else if (grepl("EARTH_SUN_DISTANCE", linha)) {
+      parametros$distancia <- as.numeric(sub(".*=\\s*", "", linha))
+    } else if (grepl("SUN_ELEVATION", linha)) {
+      elevacao <- as.numeric(sub(".*=\\s*", "", linha))
+      parametros$angulo_zenital <- 90 - elevacao
+    }
+  }
+  
+
+  return(parametros)
+}
+```
+
+```{r}
+plotar_histograma <- function(img, titulo = "Histograma", bins = 100, no_data_value = -9999) {
+
+  # Se for um objeto SpatRaster ou RasterBrick, extrair para array
+  if (inherits(img, "SpatRaster") || inherits(img, "Raster")) {
+    img_array <- as.array(img)
+  } else if (is.list(img)) {
+    # Caso img seja lista de bandas
+    img_array <- simplify2array(img)
+  } else if (is.matrix(img) || is.array(img)) {
+    img_array <- img
+  } else {
+    stop("Tipo de dado não suportado. Forneça um SpatRaster, Raster, array ou lista de bandas.")
+  }
+
+  # Agora segue o mesmo fluxo anterior
+  if (length(dim(img_array)) == 3) {
+    bandas <- dim(img_array)[3]
+    cores <- c('red', 'green', 'blue', 'purple', 'orange', 'brown', 'pink')
+    bandas <- min(bandas, length(cores))
+
+    lista_dfs <- list()
+    for (i in 1:bandas) {
+      dados <- as.vector(img_array[, , i])
+      # Remover NoData e NA/NaN
+      dados <- dados[!is.na(dados) & !is.nan(dados) & dados != no_data_value]
+      df_temp <- data.frame(Banda = paste0("Banda ", i), Valor = dados)
+      lista_dfs[[i]] <- df_temp
+    }
+    df_final <- do.call(rbind, lista_dfs)
+
+    p <- ggplot(df_final, aes(x = Valor, fill = Banda)) +
+      geom_histogram(bins = bins, alpha = 0.5, position = "identity") +
+      scale_fill_manual(values = cores[1:bandas]) +
+      theme_minimal() +
+      ggtitle(titulo) +
+      xlab("Valor do Pixel") +
+      ylab("Frequencia") +
+      theme(legend.title = element_blank())
+
+  } else {
+    # Uma única banda (2D)
+    dados <- as.vector(img_array)
+    dados <- dados[!is.na(dados) & !is.nan(dados) & dados != no_data_value]
+    df_final <- data.frame(Valor = dados)
+
+    p <- ggplot(df_final, aes(x = Valor)) +
+      geom_histogram(bins = bins, fill = "blue", alpha = 0.7) +
+      theme_minimal() +
+      ggtitle(titulo) +
+      xlab("Valor do Pixel") +
+      ylab("Frequência")
+  }
+
+  print(p)
+}
+
+```
+
+## **Carregamento e Visualização do Raster**
+Neste primeiro passo, será realizada o carregament da imagem Landsat 8 e sua visualização, incluindo a geração do histograma.
+
+Utilize as funções predefinidas `carregar_raster`, e `plotar_histograma` para facilitar este processo. Certifique-se de verificar o sistema de coordenadas, resolução espacial e número de bandas do raster antes de prosseguir com as etapas subsequentes.
+
+```{r}
+# Carregar imagem
+img_dir <- "D:/Pos-GeoDataScience/dados_desafio"
+img <- carregar_raster(img_dir, tamanho = 10500)
+plotRGB(img, r = 3, g = 2, b = 1, stretch = "mean", main = "Imagem Original")
+```
+
+
+```{r}
+plotar_histograma(img, titulo = "Histograma Imagem Original")
+```
+
+
+```{r}
+# Extrair parâmetros
+parametros <- extrair_parametros_mtl("D:/Pos-GeoDataScience/dados_desafio/LC09_L1TP_214065_20250502_20250502_02_T1_MTL.txt")
+parametros_df <- as.data.frame(parametros)
+parametros_df
+```
+
+
+### **Conversão para Radiância e Reflectância**
+
+No segundo passo, será realizada a conversão dos valores digitais (DN) para radiância e, em seguida, para reflectância. A conversão de valores digitais para radiância é um passo crítico, pois transforma os números digitais capturados pelos sensores em valores físicos de radiância, que representam a quantidade de energia refletida pela superfície.
+
+$$L=(DN \cdot G) + O$$
+
+Onde:
+
+- \\(L\\) = Radiância \\(\left(W/m^2 \cdot sr \cdot \mu m\right)\\)  
+- \\(DN\\) =  Valor digital do pixel
+- \\(G\\) = Ganho (fator de escala)  
+- \\(O\\) = Offset (correção de deslocamento cada banda)  
+
+.\linebreak
+
+####💡 DICAS: Função `digital_para_radiancia()`
+
+* Os valores de **ganho** e **offset** são diferentes para cada banda e vêm do arquivo de metadados (MTL).
+* Essa conversão transforma o número digital (DN) em uma medida física de energia (radiância).
+
+##### O que você precisa fazer:
+* **Iterar sobre cada banda** (`for` nas bandas disponíveis).
+* **Recuperar o número da banda** como string (`as.character()` no R).
+* **Obter o ganho e offset** do dicionário de parâmetros: `parametros_mtl$ganho[[banda]]`.
+* **Aplicar a fórmula da radiância**: `L = (DN * ganho) + offset`.
+* **Armazenar o resultado** em `r_crop[[i]]`.
+
+.\linebreak
+
+```{r}
+digital_para_radiancia <- function(r_crop, parametros_mtl) {
+  # Obter os números das bandas no nome das camadas
+  bandas_disponiveis <- as.numeric(c(1, 2, 3, 4, 5, 6, 7, 9))
+  
+  # Percorre cada banda
+  for (i in seq_along(bandas_disponiveis)) {
+    
+    ## Seu código começa aqui ##
+    # 1. Obtenha o número da banda atual como string
+    banda <- as.character(bandas_disponiveis[i])
+    
+    # 2. Recupere o ganho e o offset correspondentes do dicionário de parâmetros
+    ganho <- parametros_mtl$ganho[[banda]]
+    offset <- parametros_mtl$offset[[banda]]
+    
+    # Verifica se os parâmetros existem para a banda atual
+    if (is.null(ganho) || is.null(offset)) {
+      warning(paste("Parâmetros não encontrados para banda", banda, "- pulando."))
+      next
+    }
+    
+    # 3. Calcule a radiância usando a equação L = (DN * ganho) + offset
+    r_crop[[i]] <- r_crop[[i]] * ganho + offset
+    
+  }
+  
+  # 4. Retorna o raster convertido para radiância
+  return(r_crop)
+}
+
+```
+
+```{r}
+# Aaplicar conversão
+img_rad <- digital_para_radiancia(img, parametros)
+```
+
+```{r}
+plotRGB(img_rad, r = 3, g = 2, b = 1, stretch = "mean", main = "Imagem em Radiancia")
+```
+
+
+```{r}
+plotar_histograma(img_rad, titulo = "Histograma Imagem Original")
+```
+
+
+### **Conversão para Reflectância TOA**
+A conversão para reflectância TOA (Top of Atmosphere) é fundamental para normalizar os dados, removendo a variação causada pela distância Terra-Sol e pelo ângulo de incidência solar, permitindo a comparação entre diferentes imagens temporais.
+
+$$
+\rho = \frac{L \cdot \pi \cdot d^2}{ESUN \cdot \cos(\theta)}
+$$
+
+Onde:
+- **ρ** = Reflectância TOA (adimensional)  
+- **L** = Radiância (W/m²·sr·μm)  
+- **π** = Constante matemática (aproximadamente 3,14159)  
+- **d** = Distância Terra-Sol (em unidades astronômicas)  
+- **ESUN** = Irradiância solar exoatmosférica (W/m²·μm) de cada Banda  
+- **θ** = Ângulo zenital solar (em radianos)  
+
+.\linebreak
+
+####💡 DICAS: Função `radiancia_para_toa()`
+
+* A Reflectância TOA ajusta a radiância para as condições de iluminação (Sol e Terra).
+* Permite comparar imagens de datas diferentes.
+
+##### O que você precisa fazer:
+* **Iterar sobre cada banda**.
+* **Recuperar o ESUN** da banda: `parametros$ESUN[[banda]]`.
+* **Usar a distância Terra-Sol (`d`) e o ângulo zenital (`θ`)**.
+* **Aplicar a fórmula da TOA**: `TOA = (π * L * d²) / (ESUN * cos(θ))`.
+* **Converter graus para radianos**: `theta * pi / 180`.
+
+.\linebreak
+
+```{r}
+radiancia_para_toa <- function(img_rad, parametros) {
+  # Obter os números das bandas no nome das camadas
+  bandas_disponiveis <- as.numeric(c(1, 2, 3, 4, 5, 6, 7, 9))
+
+  # Percorre cada banda
+  for (i in seq_along(bandas_disponiveis)) {
+    
+    ## Seu código começa aqui ##
+    # 1. Obtenha o número da banda atual como string
+    banda <- as.character(bandas_disponiveis[i])
+    
+    # 2. Recupere o valor de ESUN (irradiação solar) para a banda atual
+    esun <- parametros$ESUN[[banda]]
+    
+    # 3. Recupere a distância Terra-Sol (d) e o ângulo zenital (theta) dos parâmetros
+    d <- parametros$d
+    theta <- parametros$angulo_zenital
+    
+    # 4. Calcule a reflectância TOA usando a equação TOA = (π * L * d²) / (ESUN * cos(θ))
+    img_rad[[i]] <- (pi * img_rad[[i]] * d^2) / (esun * cos(theta * pi / 180))
+    
+    ## Seu código termina aqui ##
+  }
+
+  # 5. Retorna o raster convertido para reflectância TOA
+  return(img_rad) 
+}
+
+
+```
+
+
+```{r}
+refletancia_toa <- radiancia_para_toa(img_rad, parametros)
+
+```
+
+
+```{r}
+plotRGB(refletancia_toa, r = 3, g = 2, b = 1, stretch = "mean", main = "Imagem em TOA")
+```
+
+```{r}
+plotar_histograma(refletancia_toa, titulo = "Histograma Corrigida TOA")
+```
+
+### **Correção Atmosférica (Dark Object Subtraction - DOS)**
+
+Calcula o valor escuro para subtração (DOS) para remover o efeito atmosférico na radiância medida:
+
+$$
+L_{corr} = L - L_{min}
+$$
+
+Onde:
+- \\(L_{corr}\\) = Radiância corrigida (W/m²·sr·μm)  
+- \\(L\\) = Radiância medida (W/m²·sr·μm)  
+- \\(L_{min}\\) = Radiância mínima, representando o valor mais escuro na cena, utilizado para compensar a interferência atmosférica.
+
+.\linebreak
+
+#### 💡 DICAS: Função `calcular_valor_escuro()`
+
+* O "valor escuro" representa os pixels mais escuros da imagem (ex: água).
+* Usamos o **percentil de 1%** para evitar outliers.
+
+##### O que você precisa fazer:
+* **Iterar sobre as bandas** da imagem.
+* **Filtrar os valores inválidos** (remover `0` e `NA`).
+* **Calcular o percentil 1%**: `quantile(banda, probs = 0.01)`.
+* **Armazenar o valor escuro** no vetor `valores_escuros`.
+
+.\linebreak
+
+```{r}
+# Função para calcular o valor escuro de cada banda
+calcular_valor_escuro <- function(imagem_stack) {
+  
+  # Inicializa o vetor para armazenar o valor escuro de cada banda
+  valores_escuros <- numeric(nlyr(imagem_stack))
+  
+  # Percorre todas as bandas da imagem
+  for (i in 1:nlyr(imagem_stack)) {
+    
+    ## Seu código começa aqui ##
+    # 1. Obtenha os valores da banda atual
+    banda <- values(imagem_stack[[i]])
+    
+    # 2. Filtra os valores: remove pixels com valor zero e NA
+    banda_filtrada <- banda[banda > 0 & !is.na(banda)]
+    
+    # 3. Calcula o percentil de 1% (valor escuro) ou define 0 se não houver dados válidos
+    if (length(banda_filtrada) > 0) {
+      valores_escuros[i] <- quantile(banda_filtrada, probs = 0.01, na.rm = TRUE)
+    } else {
+      valores_escuros[i] <- 0  # Define 0 quando não há dados válidos
+    }
+    ## Seu código termina aqui ##
+  }
+  
+  # Retorna o vetor com os valores escuros por banda
+  return(valores_escuros)
+}
+
+```
+
+```{r}
+Lmin <- calcular_valor_escuro(refletancia_toa)
+print(Lmin)
+
+```
+.\linebreak
+
+#### 💡 DICAS: Função `correcao_dos()`
+
+* A correção **DOS** remove o valor mínimo atmosférico (valor escuro) da radiância.
+* **pmax()** é usado para evitar valores negativos (não faz sentido ter radiância negativa).
+
+##### O que você precisa fazer:
+* **Iterar sobre as bandas**.
+* **Aplicar a fórmula**: `L_corrigido = max(L - Lmin, 0)`.
+* **Reconstruir o raster corrigido**.
+* **Conferir o tamanho do vetor** `Lmin` (deve bater com o número de bandas).
+
+.\linebreak
+
+```{r}
+# Função para aplicar a correção DOS (versão segura)
+correcao_dos <- function(imagem_stack, Lmin) {
+  
+  # Verifica se o vetor Lmin tem o mesmo tamanho que o número de bandas no raster
+  if (length(Lmin) != nlyr(imagem_stack)) {
+    stop("O vetor Lmin deve ter o mesmo comprimento que o número de camadas em SpatRaster.")
+  }
+
+  # Lista para armazenar as bandas corrigidas
+  bandas_corrigidas <- list()
+
+  # Percorre cada banda para aplicar a correção
+  for (i in 1:nlyr(imagem_stack)) {
+    
+    ## Seu código começa aqui ##
+    # 1. Obtenha a banda atual
+    banda <- imagem_stack[[i]]
+    
+    # 2. Aplique a correção DOS: L_corrigido = max(L - Lmin, 0)
+    bandas_corrigidas[[i]] <- app(banda, function(x) pmax(x - Lmin[i], 0))
+    ## Seu código termina aqui ##
+  }
+
+  # Reconstrói o raster a partir das bandas corrigidas
+  imagem_corrigida <- rast(bandas_corrigidas)
+  
+  # Mantém os nomes originais das bandas
+  names(imagem_corrigida) <- names(imagem_stack)
+
+  # Retorna o raster corrigido
+  return(imagem_corrigida)
+}
+
+```
+
+```{r}
+imagem_corrigida = correcao_dos(refletancia_toa, Lmin)
+```
+
+```{r}
+plotRGB(imagem_corrigida, r = 3, g = 2, b = 1, stretch = "mean", main = "Imagem corrigida DOS")
+```
+
+```{r}
+plotar_histograma(imagem_corrigida, titulo = "Histograma Corrigida DOS")
+```
+
+### **Mascaramento de Nuvens**
+
+Nesta etapa, será aplicado o mascaramento de nuvens, que consiste em identificar e remover pixels que representam nuvens com base em um limite de reflectância. O objetivo é minimizar a interferência das nuvens nos dados, melhorando a qualidade da análise.
+
+.\linebreak
+
+#### 💡 DICAS: Função `aplicar_mascara_nuvem()`
+
+* Usamos a banda azul porque nuvens refletem muito nela.
+* O **kernel** expande a máscara para pegar halos ao redor das nuvens.
+
+##### O que você precisa fazer:
+* **Selecionar a banda azul** (ex: banda 3).
+* **Criar a máscara de nuvens**: `banda_azul > threshold`.
+* **Aplicar dilatação** usando `focal()` e o kernel.
+* **Aplicar a máscara à imagem** (pixels de nuvem viram `NA`).
+
+.\linebreak
+
+
+```{r}
+# Função para aplicar máscara de nuvens com base na banda azul
+aplicar_mascara_nuvem <- function(imagem_stack,  
+                                  threshold_nuvem = 0.2, 
+                                  tamanho_kernel = 3) {
+  
+  ## Seu código começa aqui ##
+  # 1. Seleciona a banda azul (geralmente banda 3 em Landsat)
+  banda_azul <- imagem_stack[[3]]
+  
+  # 2. Cria a máscara de nuvens comparando a banda azul com o limiar (threshold)
+  mascara_nuvens <- banda_azul > threshold_nuvem
+  
+  # 3. Define a estrutura de dilatação (kernel) para expandir a máscara de nuvens
+  estrutura <- matrix(1, nrow = tamanho_kernel, ncol = tamanho_kernel)
+  
+  # 4. Aplica a dilatação na máscara de nuvens (expansão da área mascarada)
+  mascara_nuvens_expandida <- focal(mascara_nuvens, w = estrutura, fun = max, na.policy = "omit")
+  mascara_nuvens_expandida <- mascara_nuvens_expandida > 0
+  
+  # 5. Aplica a máscara à imagem, definindo pixels de nuvem como NA
+  imagem_corrigida <- mask(imagem_stack, mascara_nuvens_expandida, maskvalue = 1)
+  ## Seu código termina aqui ##
+  
+  # Retornar o raster corrigido (com nuvens mascaradas)
+  return(imagem_corrigida)
+}
+
+```
+
+```{r}
+imagem_sem_nuvem <- aplicar_mascara_nuvem(imagem_corrigida, 
+                                          threshold_nuvem = 80,
+                                          tamanho_kernel = 11)
+```
+
+
+```{r}
+plotRGB(imagem_sem_nuvem, r = 3, g = 2, b = 1, stretch = "mean", main = "Imagem sem nuvem")
+```
+
+```{r}
+plotar_histograma(imagem_sem_nuvem, titulo = "Histograma da Imagem sem Nuvem")
+```
+
+
+### **Cálculo do NDVI**
+
+O NDVI é amplamente utilizado para análise da vegetação, pois destaca a diferença na reflectância entre o infravermelho próximo (NIR) e o vermelho (RED), que é diretamente relacionada à quantidade de clorofila e biomassa na vegetação.
+
+$$NDVI = \frac{NIR - RED}{NIR + RED}$$
+
+.\linebreak
+
+#### 💡 DICAS: Função `calcular_ndvi()`
+
+* O **NDVI** mede a saúde da vegetação: NIR alto e RED baixo indicam vegetação saudável.
+* Os valores variam entre -1 e 1.
+
+##### O que você precisa fazer:
+* **Substituir valores inválidos** (`-9999`) por `NA`.
+* **Aplicar a fórmula do NDVI**: `(NIR - RED) / (NIR + RED)`.
+* **Definir o nome da camada** como `"NDVI"`.
+
+.\linebreak
+
+```{r}
+# Função para calcular o NDVI
+calcular_ndvi <- function(banda_nir, banda_red, no_data_value = -9999) {
+  library(raster)  # ou library(terra) se preferir
+  
+  ## Seu código começa aqui ##
+  # 1. Substitui os valores de no_data_value por NA na banda NIR
+  banda_nir[banda_nir == no_data_value] <- NA
+  
+  # 2. Substitui os valores de no_data_value por NA na banda Red
+  banda_red[banda_red == no_data_value] <- NA
+  
+  # 3. Calcula o NDVI usando a fórmula: (NIR - Red) / (NIR + Red)
+  ndvi <- (banda_nir - banda_red) / (banda_nir + banda_red)
+  
+  # 4. Define o nome da camada resultante como "NDVI"
+  names(ndvi) <- "NDVI"
+  ## Seu código termina aqui ##
+  
+  # Retorna o raster NDVI
+  return(ndvi)
+}
+
+```
+
+
+```{r}
+# Obter bandas Nir e Red
+banda_nir <- imagem_sem_nuvem[[4]]
+banda_red <- imagem_sem_nuvem[[1]]
+
+# Calcular NDVI
+ndvi = calcular_ndvi(banda_nir, banda_red) 
+```
+
+```{r}
+tm_shape(ndvi) +
+  tm_raster(style = "cont", palette = "RdYlGn", midpoint = 0, breaks = seq(-1, 1, by = 0.2), title = "NDVI") +
+  tm_layout(main.title = "Imagem do NDVI")
+
+```
+
+```{r}
+plotar_histograma(ndvi, titulo = "Histograma da NDVI")
+```
+
+## **Reclassificar NDVI**
+
+Agora por fim iremos realizar a reclassificação do NDVI Gerado com o pós-processamento e o original, comparando assim os resultados de cada.
+
+.\linebreak
+
+#### 💡 DICAS: Função `calcular_ndvi_e_classificar()`
+
+* A reclassificação simplifica a interpretação do NDVI (categorias em vez de valores contínuos).
+
+##### O que você precisa fazer:
+* **Definir a matriz de reclassificação** com intervalos (ex: 0-0.33 = doente).
+* **Aplicar a função `classify()`** para reclassificar o raster.
+* **Interpretar as classes**:
+   * 1 = Objeto morto
+   * 2 = Planta doente
+   * 3 = Planta moderada
+   * 4 = Planta saudável
+   
+.\linebreak
+
+```{r}
+calcular_ndvi_e_classificar <- function(ndvi, no_data_value = -9999) {
+
+  ## Seu código começa aqui ##
+  # 1. Define a matriz de reclassificação com base nos intervalos de NDVI
+  # A matriz tem 3 colunas: intervalo mínimo, máximo e valor da classe
+  reclass_mat <- matrix(c(
+    -1,   0,    1,   # 1 = Objeto inanimado ou planta morta
+     0, 0.33,   2,   # 2 = Planta doente
+  0.33, 0.66,   3,   # 3 = Planta moderadamente saudável
+  0.66,   1,   4    # 4 = Planta muito saudável
+  ), ncol = 3, byrow = TRUE)
+  
+  # 2. Aplica a reclassificação no raster NDVI usando a matriz definida
+  classificacao <- classify(ndvi, rcl = reclass_mat, include.lowest = TRUE, right = FALSE)
+  ## Seu código termina aqui ##
+  
+  # 3. Retorna o raster classificado
+  return(classificacao)
+}
+
+
+```
+
+```{r}
+# Reclassificar NDVI
+ndvi_reclass = calcular_ndvi_e_classificar(ndvi)
+```
+
+```{r}
+plot(ndvi_reclass)
+```
+
+```{r}
+plotar_histograma(ndvi_reclass, titulo = "Histograma da reclassificacao")
+```

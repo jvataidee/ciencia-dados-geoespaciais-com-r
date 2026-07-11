@@ -1,0 +1,165 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+![](D:/Pos-GeoDataScience/M2-R/images/01 Assinatura Horizontal COR.png)
+
+
+# **Sensoriamento Remoto em R**
+No R, trabalha-se muito bem com dados de Sensoriamento Remoto, utilizando uma variedade de pacotes dedicados à manipulação, análise e visualização desses dados. Diferentes pacotes, que já trabalhamos como `raster` e `sf`, mas outros como `terra` (uma evolução do pacote raster), `stars` (para trabalhar com arranjos espaciais e temporais n-dimensionais), todos esses pacotes oferecem ferramentas robustas para o processamento de dados de Sensoriamento Remoto e permitem realizar análises complexas, como classificação, redução de dimensionalidade, e modelagem espacial.
+
+```{r}
+if (!requireNamespace("raster", quietly = TRUE)) install.packages("raster")
+if (!requireNamespace("sf", quietly = TRUE)) install.packages("sf")
+if (!requireNamespace("stars", quietly = TRUE)) install.packages("stars")
+```
+
+```{r}
+# Carregar os pacotes
+library(raster)
+library(ggplot2)
+library(sf)
+library(terra)
+library(dplyr)
+library(tmap)
+library(tidyverse)
+library(readr)
+library(stars)
+```
+
+
+```{r}
+imagem_path <- "D:/Pos-GeoDataScience/M2-R/dado_pratica/IMAGEM/LC09_L2SP_214065_20240108_20240113_02_T1_SR.tif"
+raster_img_terra <- rast(imagem_path)
+raster_img <- raster(imagem_path)
+```
+
+Com o pacote raster, você pode facilmente selecionar bandas específicas e visualizá-las:
+
+```{r}
+# Selecionar uma banda específica
+banda1 <- raster_img_terra[[1]]
+
+# Visualização
+plot(banda1)
+```
+
+### **Recortar Imagem**
+
+Para aplicar uma máscara ou recortar uma imagem de satelite, com base em dados vetoriais (por exemplo, limites de um município), primeiro precisamos ler os os dados vetoriais usando `sf` e depois aplique a máscara:
+
+```{r}
+# Obter Sistema de referência da imagem
+crs_raster <- crs(raster_img)
+
+# ler e transofrmar poligono de interesse
+municipios <- st_read("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Municipios/PB_Municipios_2022.shp")
+
+#Selecionar município
+joaoPessoa <- municipios %>% filter(municipios$NM_MUN == 'João Pessoa')
+
+#Projetando poligono no sistema de referência da imagem
+joaoPessoa_project <- st_transform(joaoPessoa, crs = crs_raster)
+joaoPessoa_sp <- as(joaoPessoa_project, "Spatial")
+
+# Obtendo os limites da geometria do shapefile
+xmin <- bbox(joaoPessoa_sp)[1,1]
+xmax <- bbox(joaoPessoa_sp)[1,2]
+ymin <- bbox(joaoPessoa_sp)[2,1]
+ymax <- bbox(joaoPessoa_sp)[2,2]
+
+```
+
+```{r}
+#Sobrepondo Imagem e Município
+plot(banda1)
+plot(joaoPessoa_project, add = TRUE)
+```
+Como sabemos que os dois dados estão no mesmo sistema de coordendad, podemos aplicar uma máscara com base em dados vetoriais usando a função `mask`.
+
+```{r}
+# Aplicar a máscara diretamente com um objeto sf
+rasterRecortado <- mask(raster_img_terra, joaoPessoa_project)
+```
+
+
+```{r}
+# Visualização
+plot(rasterRecortado, xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+### **Composição de Bandas**
+Para realizar a composição de bandas em R, você pode usar o pacote `raster` ou `terra`, que são as escolhas mais comuns para trabalhar com dados rasterizados. Esses pacotes permitem a manipulação e análise de dados raster, incluindo a composição de bandas para criar imagens coloridas que destacam características específicas da superfície terrestre.
+
+Para uma composição RGB, você extrairá as bandas correspondentes ao Vermelho (Red), Verde (Green) e Azul (Blue). Supondo que essas sejam, respectivamente, as bandas 4, 3 e 2:
+
+
+```{r}
+# Extrair bandas para composição RGB
+rgb <- c(rasterRecortado[[4]], rasterRecortado[[3]], rasterRecortado[[2]])
+
+# Visualizar a composição RGB
+plotRGB(rgb, r=1, g=2, b=3, stretch="lin", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+Para uma composição de falsa-cor que realça a vegetação, você pode usar, por exemplo, as bandas do Infravermelho Próximo (Near Infrared - NIR), Vermelho e Verde. Supondo que essas sejam as bandas 5, 4 e 3:
+
+```{r}
+# Extrair bandas para composição de falsa-cor (NIR, Red, Green)
+falsa_cor <- c(rasterRecortado[[5]], rasterRecortado[[4]], rasterRecortado[[3]])
+
+# Visualizar a composição de falsa-cor
+plotRGB(falsa_cor, r=1, g=2, b=3, stretch="lin", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+### **Histogramas**
+No R, especialmente no contexto de uma imagens do formato TIFF com todas as bandas juntas, podemos utilizar o pacote `raster` em conjunto com o `ggplot2` para visualização dos histogramas. 
+
+```{r}
+# Para calcular histogramas de todas as bandas
+par(mfrow = c(2, 2)) 
+
+# Iterar sobre cada banda da imagem e plotar o histograma
+for (i in 1:nlyr(rasterRecortado)) {
+  hist(rasterRecortado[[i]], main = paste("Histograma da Banda", i), xlab = "Valor Digital", ylab = "Frequência")
+}
+```
+
+### **Filtros**
+Também podemos realizar diversos filtros utilizando linguagem R, usando a função `focal` para diferentes aplicações diferentes. Podemos apliar filtros focais consideram uma célula central e suas vizinhas, aplicando uma função de agregação a todas as células dentro de uma vizinhança especificada para determinar o novo valor da célula central.
+
+
+```{r}
+# Filtro de suavização
+suavizacao = focal(falsa_cor, w = matrix(1, nrow = 3, ncol = 3)/9, fun = mean)
+
+# Filtro de mediana 
+mediana = focal(falsa_cor, w = matrix(1, nrow = 3, ncol = 3), fun = function(x) {median(x, na.rm = TRUE)})
+```
+
+```{r}
+par(mfrow = c(1, 1))
+
+plotRGB(falsa_cor, r=1, g=2, b=3, stretch="lin", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plotRGB(suavizacao, r=1, g=2, b=3, stretch="lin", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+plotRGB(mediana, r=1, g=2, b=3, stretch="lin", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+### **Criação de Indices**
+Também podemos extrair individualmente as bandas e calcular diversos índices como o NDVI e o NDWI.
+
+#### *NDVI*
+
+```{r}
+ndvi <- (rasterRecortado[[5]] - rasterRecortado[[4]]) / (rasterRecortado[[5]] + rasterRecortado[[4]])
+plot(ndvi, main="NDVI", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+
+
+#### *NDWI*
+
+```{r}
+ndwi <- (rasterRecortado[[3]] - rasterRecortado[[5]]) / (rasterRecortado[[3]]+ rasterRecortado[[5]])
+plot(ndwi, main="NDWI", xlim=c(xmin, xmax), ylim=c(ymin, ymax))
+```
+

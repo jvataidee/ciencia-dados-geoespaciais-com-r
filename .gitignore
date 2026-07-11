@@ -1,0 +1,4 @@
+# Arquivos de dados grandes (>100MB) - presentes localmente, não versionados no git
+dados/nordeste-latest-free/
+dados/fraud_dataset.csv
+dados/deep_learning_datasets/

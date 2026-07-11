@@ -1,0 +1,380 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+![](D:/Pos-GeoDataScience/M2-R/images/01 Assinatura Horizontal COR.png)
+
+
+# **Análise Geoespacial em R Part 1**
+Para realizar uma análise geoespacial com R, a biblioteca mais usada é a `sf` (Simple Features), que é uma das bibliotecas padrão para manipulação e análise de dados geográficos, mas quando falamos de visualização as bibliotecas mais usadas são `ggplot2` junto com `geom_sf`.
+
+```{r}
+vetor_pacotes = c(
+  "devtools",
+  "ggspatial",
+  "prettymapr",
+  "st",
+  "ggplot2",
+  "e1071",
+  "ggcorrplot",
+  "testthat",
+  "tidyverse",
+  "shiny",
+  "leaflet",
+  "entropy",
+  "sda",
+  "fdrtool",
+  "corpcor",
+)
+
+if (!requireNamespace(vetor_pacotes, quietly = TRUE)) install.packages(vetor_pacotes, dependencies = TRUE)
+
+if (!requireNamespace("ropensci/plotly", quietly = TRUE)) devtools::install_github("ropensci/plotly")
+if (!requireNamespace("tidyverse/dplyr", quietly = TRUE)) devtools::install_github("tidyverse/dplyr")
+if (!requireNamespace('ggplot2', quietly = TRUE)) install.packages('ggplot2')
+if (!requireNamespace('sf', quietly = TRUE)) install.packages('sf', dependencies = TRUE)
+if (!requireNamespace("lwgeom", quietly = TRUE)) install.packages("lwgeom", dependencies = TRUE)
+if (!requireNamespace("ggmap", quietly = TRUE)) install.packages("ggmap", dependencies = TRUE)
+```
+
+Utilizando a linguagem R, você pode eficientemente descompactar arquivos dentro do próprio ambiente de programação através da função `unzip`. Esse processo permite um acesso direto e prático aos dados, sem necessidade de etapas adicionais fora do ambiente de R.
+
+Neste exemplo, vamos trabalhar com os conjuntos de dados dos [MUNICÍPIOS](https://drive.google.com/file/d/1WMtZtmBMixW54gkZJzB8cEfULR7cIQZg/view?usp=sharing) e [SETORES](https://drive.google.com/file/d/1mCmO3I-Lmh9cqPABka9CMJUNFfu9F4En/view?usp=sharing)da Paraíba, ou de qualquer outro estado que seja de seu interesse. Vale ressaltar que os arquivos utilizados aqui são os mesmos empregados na disciplina de Python.
+
+
+```{r}
+library(ggplot2)
+library(sf)
+library(st)
+library(dplyr)
+library(leaflet)
+library(lwgeom)
+library(purrr)
+library(ggmap)
+```
+
+
+```{r}
+# Descompactar arquivos shapefile
+unzip("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Municipios_2022.zip", exdir = "D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Municipios")
+unzip("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Setores_2021.zip", exdir = "D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Setores")
+```
+
+```{r}
+# Carregar dados geoespaciais
+municipios <- st_read("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Municipios/PB_Municipios_2022.shp")
+```
+```{r}
+# Converter o objeto sf para data.frame
+municipios_df <- as.data.frame(municipios)
+```
+
+```{r}
+setores <- st_read("D:/Pos-GeoDataScience/M2-R/dado_pratica/PB_Setores/PB_Setores_2021.shp")
+```
+```{r}
+# Converter o objeto sf para data.frame
+setores_df <- as.data.frame(setores)
+```
+
+```{r}
+# Visualizar as primeiras linhas do DataFrame geoespacial
+head(municipios_df)
+```
+```{r}
+# Exibir o mapa dos municípios
+ggplot(municipios) +
+  geom_sf() +
+  theme_minimal() +
+  ggtitle("Mapa dos Municípios da Paraíba")
+```
+
+## **Manipulação de Dados Geoespaciais Vetoriais**
+A manipulação de dados geoespaciais vetoriais em R pode ser efetuada com a ajuda de pacotes como `sf` e `rgeos`. Esses são os pacotes mais usados para esssas atividades, os quais oferecem funcionalidades semelhantes às bibliotecas Python GeoPandas e Shapely.
+
+Para começar, importamos os dados geoespaciais e selecionamos um município específico, similarmente ao que foi feito no exemplo de Python.
+
+```{r}
+# Converter o objeto sf para data.frame
+municipios_df <- as.data.frame(municipios)
+```
+
+```{r}
+head(municipios_df)
+```
+
+```{r}
+# Converter o objeto data.frame para sf
+municipios_sf <- st_as_sf(municipios_df, sf_column_name = "geometry")
+```
+
+```{r}
+# Selecionar um município específico
+municipio_especifico <- municipios_sf %>% filter(municipios_sf$NM_MUN == 'João Pessoa')
+```
+
+```{r}
+# Plotar o município selecionado
+plot(st_geometry(municipio_especifico))
+title('Mapa do Município João Pessoa')
+```
+
+### **Simplificação e Generalização**
+Em R, as operações de simplificação e generalização são realizadas principalmente com a função `st_simplify` do pacote sf.
+
+```{r}
+# Simplificar a geometria do município
+municipio_simplificado <- st_simplify(municipio_especifico, dTolerance = 500)
+```
+
+```{r}
+# Plotar o município simplificado
+plot(st_geometry(municipio_simplificado))
+title('Mapa do Município Simplificado')
+```
+
+```{r}
+# Generalizar a geometria do município
+municipio_generalizado <- st_simplify(municipio_especifico, dTolerance = 3000)
+```
+
+```{r}
+# Plotar o município generalizado
+plot(st_geometry(municipio_generalizado))
+title('Mapa do Município Generalizado')
+```
+
+### **Reprojeção de Dados Geoespaciais em R**
+A reprojeção de dados geoespaciais para diferentes sistemas de coordenadas é uma tarefa comum em geoprocessamento, e pode ser realizada em R usando a função `st_transform`. Essa função permite alterar o Sistema de Referência de Coordenadas (SRC) de um conjunto de dados espaciais.
+
+```{r}
+# Reprojetar o GeoDataFrame para um CRS projetado (exemplo: EPSG:3857)
+municipio_projetado <- st_transform(municipio_especifico, crs = 3857)
+setores_projetado <- st_transform(setores, crs = 3857)
+
+# Verificar o sistema de coordenadas resultante
+print(st_crs(municipio_especifico))
+```
+```{r}
+print(st_crs(municipio_projetado))
+```
+
+
+### **Divisão de Geometrias**
+Em análises geoestatísticas, frequentemente surge a necessidade de subdividir grandes regiões em parcelas menores para uma investigação mais detalhada. Existem múltiplas abordagens para realizar esta tarefa; no entanto, ao empregar a linguagem R, podemos efetuar esta subdivisão de maneira eficiente e precisa através da função `st_subdivide`. Esta função requer apenas que se especifique a área a ser subdividida e o número máximo de vértices por parcela.
+
+
+```{r}
+sub <- st_subdivide(municipio_projetado, 1000)
+
+plot(sub$geometry, col='blue', main = 'Subdivisão',)
+```
+
+
+### **União de Geometrias**
+Outro processo importante nas análises geoestatísticas é a união ou dissolve de polígonos e regiões de interesse, procedimento oposto à subdivisão. Para efetivar essa união utiliza-se a função `st_union`. Ela permite a fusão eficiente de múltiplas geometrias em uma única entidade coesa. Para assegurar a integração total dos polígonos, especialmente quando há pequenas lacunas ou sobreposições entre eles, recomenda-se o uso de `st_buffer` para aplicar um pequeno buffer antes da união. 
+
+```{r}
+sub <- st_buffer(sub, 0.5)
+
+# Realizar união das geometrias divididas
+municipios_united <- st_union(sub)
+municipios_united <- st_buffer(sub, -0.5)
+
+# Plotar o resultado da união
+plot(municipios_united$geometry, main = 'União das Subdivisões', col='blue')
+```
+
+### **Transformações Geométricas (Rotação, Escalonamento e Translação)**
+Já sobre aos processos de transformações geométricas como: rotação, escalonamento e translação, a biblioteca `sf` oferece suporte a essas operações, facilitando a manipulação espacial dos dados. No entanto, há espaço para personalização e expansão dessas capacidades por meio do desenvolvimento de funções próprias. Permitindo a implementação de algoritmos específicos que podem atender a necessidades únicas da manipulação geométrica.
+
+
+```{r}
+# Função para rotação coordenadas x, y
+rotate_coords <- function(x, y, angle_degrees) {
+  angle_radians <- pi * angle_degrees / 180
+  x_rotated <- cos(angle_radians) * x - sin(angle_radians) * y
+  y_rotated <- sin(angle_radians) * x + cos(angle_radians) * y
+  return(list(x = x_rotated, y = y_rotated))
+}
+
+# Função para aplicar mudança de escala a coordenadas
+scale_coords <- function(x, y, scale_x, scale_y) {
+  x_scaled <- x * scale_x
+  y_scaled <- y * scale_y
+  return(list(x = x_scaled, y = y_scaled))
+}
+
+# Função para transladar coordenadas x, y
+translate_coords <- function(x, y, shift_x, shift_y) {
+  x_translated <- x + shift_x
+  y_translated <- y + shift_y
+  return(list(x = x_translated, y = y_translated))
+}
+
+# Função simplificada para escalar
+scale_multipolygon <- function(geometry, scale_factor) {
+  # Processando cada geometria individualmente
+  scaled_geom <- lapply(st_geometry(geometry), function(geom) {
+    # Aplicando escala a cada ponto em cada polígono
+    geom <- lapply(geom, function(polygon) {
+      lapply(polygon, function(ring) {
+        coords <- scale_coords(ring[,1], ring[,2], scale_factor, scale_factor)
+        cbind(coords$x, coords$y)
+      })
+    })
+    st_multipolygon(geom)
+  })
+  
+  st_sfc(scaled_geom, crs = st_crs(geometry))
+}
+  
+
+
+# Função de rotação para geometrias MULTIPOLYGON
+rotate_multipolygon <- function(geometry, angle_degrees) {
+  # Processando cada geometria individualmente
+  rotated_geom <- lapply(st_geometry(geometry), function(geom) {
+    # Aplicando rotação a cada ponto em cada polígono
+    geom <- lapply(geom, function(polygon) {
+      lapply(polygon, function(ring) {
+        coords <- rotate_coords(ring[,1], ring[,2], angle_degrees)
+        cbind(coords$x, coords$y)
+      })
+    })
+    st_multipolygon(geom)
+  })
+  
+  st_sfc(rotated_geom, crs = st_crs(geometry))
+}
+
+
+# Função de translação para geometrias MULTIPOLYGON
+translate_multipolygon <- function(geometry, shift_x, shift_y) {
+  # Processando cada geometria individualmente
+  translated_geom <- lapply(st_geometry(geometry), function(geom) {
+    # Aplicando translação a cada ponto em cada polígono
+    geom <- lapply(geom, function(polygon) {
+      lapply(polygon, function(ring) {
+        coords <- translate_coords(ring[,1], ring[,2], shift_x, shift_y)
+        cbind(coords$x, coords$y)
+      })
+    })
+    st_multipolygon(geom)
+  })
+  
+  st_sfc(translated_geom, crs = st_crs(geometry))
+}
+
+```
+
+
+```{r}
+# Aplicando rotação
+municipio_t <- rotate_multipolygon(municipio_projetado, 45)
+
+# Aplicando mudança de escala
+municipio_t <- scale_multipolygon(municipio_t, 2)
+
+# Aplicando translação
+municipio_t <- translate_multipolygon(municipio_t, 10, 5)
+
+# Plotando o resultado
+plot(st_geometry(municipio_t))
+```
+
+### **Buffer**
+O Buffer refere-se à criação de uma área perimetral ao redor de um elemento geométrico seja: ponto, linha ou polígono e definida por uma distância específica. Na prática, ao aplicar um buffer em um mapa, ao redor de um ponto, por exemplo, estamos delineando uma zona de influência ou interesse que circunda esse ponto. Esse procedimento é utilizado para identificar e analisar regiões que estão dentro de um alcance determinado, facilitando estudos de proximidade e impactos.
+
+```{r}
+# Criar o centroide do município
+centro_municipio <- st_centroid(municipio_projetado$geometry)
+
+# Criar um buffer de 5 km ao redor do centroide
+buffer_centro <- st_buffer(centro_municipio, dist = 5000)
+
+# Plotar o buffer
+plot(municipio_projetado$geometry, col = 'Blue')
+plot(buffer_centro, add = TRUE, col = 'red')
+```
+
+### **Diferença**
+A diferença geométrica permite a subtração de uma forma geométrica de outra, e tem o papel deoferecer insights valiosos em diversas aplicações espaciais. É possível, por exemplo, remover a área de um buffer de um polígono de maior dimensão,identificando uma área fora da zona de atuação.
+
+```{r}
+# Garantir que o buffer e o município estão no mesmo CRS
+buffer_centro <- st_transform(buffer_centro, st_crs(municipio_projetado$geometry))
+
+# Criar a diferença entre o município e o buffer
+diferenca <- st_difference(municipio_projetado$geometry, buffer_centro)
+
+# Plotar a diferença
+plot(diferenca, col = 'blue')
+```
+
+### **Recorte ou Intersecção**
+Já intersecção é uma operação fundamental em análises geoespaciais, usada para identificar a sobreposição entre dois conjuntos de dados espaciais. Por exemplo, pode-se querer identificar quais setores censitários estão dentro de um buffer específico.
+
+```{r}
+# Projetar os setores para o mesmo CRS do buffer
+setores_projetado <- st_transform(setores_projetado$geometry, st_crs(buffer_centro))
+
+# Realizar a intersecção entre setores e buffer
+setores_interseccao <- st_intersection(setores_projetado, buffer_centro)
+
+# Plotar os setores que intersectam com o buffer
+plot(setores_interseccao, col = 'red')
+```
+
+## **Visualização**
+### **Visualização Básica com ggplot2**
+O ggplot2 é uma biblioteca poderosa e versátil para visualização de dados em R, amplamente reconhecida por sua capacidade de gerar gráficos esteticamente agradáveis e tecnicamente precisos, incluindo mapas e visualizações baseadas em dados geoespaciais. Esta biblioteca se destaca pela sua facilidade de uso e flexibilidade, permitindo aos usuários criar uma vasta gama de visualizações complexas com comandos relativamente simples. Além disso, o ggplot2 oferece uma ampla seleção de temas de visualização, que podem ser personalizados para atender às necessidades específicas de qualquer projeto de análise de dados. Para explorar as opções de temas disponíveis e encontrar inspiração para seus próprios gráficos, confira a documentação oficial sobre temas no ggplot2 através deste link:[GGPLO2](https://ggplot2.tidyverse.org/reference/ggtheme.html)
+
+
+```{r}
+library(ggspatial)
+```
+
+```{r}
+# Criar plotagem básica com ggplot2
+ggplot(data = municipios) +
+  geom_sf() +
+  labs(title = "Visualização Básica de Dados Geoespaciais",
+       x = "Longitude",
+       y = "Latitude") +
+  theme_classic()
+```
+Utilizando o pacote `ggplot2` é possível não apenas visualizar dados, mas também categorizar e destacar variações dentro de um conjunto de dados geoespaciais de forma intuitiva e visualmente atraente. Um exemplo prático disso é a categorização de municípios com base na sua área total, seguida da criação de um mapa colorido que reflete essas categorias, podendo criar uma plotagem com base nisso.
+
+```{r}
+# Categorizar municípios baseado na área
+municipios$categoria <- cut(municipios$AREA_KM2,
+                                     breaks = quantile(municipios$AREA_KM2, probs = 0:4/4),
+                                     labels = c("Muito Pequeno", "Pequeno", "Médio", "Grande"),
+                                     include.lowest = TRUE)
+
+# Criar plotagem com cores por categoria de área
+ggplot(data = municipios) +
+  geom_sf(aes(fill = categoria)) +
+  labs(title = "Mapa com Cores por Categoria de Área",
+       fill = "Categoria") +
+  theme_light()
+```
+
+O pacote `leaflet`, em combinação com `sf`, viabiliza a incorporação de basemaps, incluindo imagens de satélite e OpenStreetMap, aos nossos mapas, resultando em uma experiência interativa semelhante ao que observamos com ferramentas em Python.
+
+```{r}
+# Criar um mapa usando leaflet
+mapa <- leaflet() %>%
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  addPolygons(data = municipios, color = "#FF0000", fill = FALSE) %>% 
+  setView(lng = mean(st_bbox(municipios)[c("xmin", "xmax")]), 
+          lat = mean(st_bbox(municipios)[c("ymin", "ymax")]), 
+          zoom = 10)
+
+# Exibir o mapa
+mapa
+```
+
+
